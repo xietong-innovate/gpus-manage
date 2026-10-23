@@ -1,0 +1,19 @@
+{
+  "name": "pai-gpu-manager",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "GPU 管理系统：SSH 直连采集的显卡级实时监控与管控（OpenPAI 深度魔改版，无 Kubernetes / 作业体系）",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.19.2",
+    "ssh2": "^1.15.0"
+  }
+}

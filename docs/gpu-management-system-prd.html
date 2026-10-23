@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPU 管理系统 PRD — 基于 OpenPAI 的深度魔改</title>
+<style>
+  :root{
+    --ink:#1e293b; --ink-2:#475569; --ink-3:#64748b;
+    --line:#e2e8f0; --bg:#f7f8fa; --card:#ffffff;
+    --brand:#3b5bdb; --brand-soft:#eef2ff;
+    --ok:#0f9d58; --ok-bg:#e6f4ea;
+    --warn:#b45309; --warn-bg:#fef3c7;
+    --err:#c0392b; --err-bg:#fdecea;
+    --off:#64748b; --off-bg:#eef1f4;
+    --info:#1d6fa5; --info-bg:#e8f2f8;
+    --tbd:#8a6d00; --tbd-bg:#fff4cc;
+    --mono:'Consolas','JetBrains Mono','Courier New',monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.75 -apple-system,'Segoe UI','Microsoft YaHei','PingFang SC',sans-serif;}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 28px 80px}
+  header.doc{padding:44px 0 10px;border-bottom:1px solid var(--line);margin-bottom:28px}
+  .doc-meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+  .eyebrow{color:var(--brand);font-weight:700;letter-spacing:.12em;font-size:13px;text-transform:uppercase}
+  h1{font-size:30px;margin:6px 0 4px;letter-spacing:.01em}
+  .doc-sub{color:var(--ink-2);margin:0}
+  h2{font-size:22px;margin:52px 0 14px;padding-top:8px;border-top:2px solid var(--ink);letter-spacing:.02em}
+  h3{font-size:17.5px;margin:30px 0 10px}
+  h4{font-size:15.5px;margin:22px 0 8px;color:#243b53}
+  p{margin:8px 0;color:var(--ink-2)}
+  p strong,li strong{color:var(--ink)}
+  ul,ol{padding-left:22px;margin:8px 0;color:var(--ink-2)}
+  li{margin:4px 0}
+  code{font-family:var(--mono);background:#eef1f6;border:1px solid var(--line);border-radius:4px;
+       padding:1px 5px;font-size:.9em;color:#243b53}
+  table{border-collapse:collapse;width:100%;margin:12px 0 18px;background:var(--card);
+        font-size:13.8px;border:1px solid var(--line)}
+  th{background:#f1f4f9;text-align:left;padding:8px 12px;border:1px solid var(--line);
+     color:var(--ink);font-weight:700;white-space:nowrap}
+  td{padding:8px 12px;border:1px solid var(--line);vertical-align:top;color:var(--ink-2)}
+  tr:nth-child(even) td{background:#fafbfd}
+  .layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:34px}
+  nav.toc{position:sticky;top:20px;align-self:start;max-height:calc(100vh - 40px);overflow:auto;
+          padding:14px 10px 14px 0;font-size:13px}
+  nav.toc a{display:block;padding:4px 10px;color:var(--ink-3);text-decoration:none;border-left:2px solid transparent;border-radius:0 4px 4px 0}
+  nav.toc a:hover{color:var(--brand);background:var(--brand-soft)}
+  nav.toc .toc-title{font-weight:700;color:var(--ink);padding:4px 10px 8px;font-size:13px;letter-spacing:.08em}
+  @media (max-width:960px){.layout{display:block}nav.toc{position:static;display:none}}
+
+  .badge{display:inline-block;padding:1px 9px;border-radius:20px;font-size:12px;font-weight:600;
+         line-height:20px;white-space:nowrap}
+  .b-p0{background:var(--err-bg);color:var(--err)}
+  .b-p1{background:var(--info-bg);color:var(--info)}
+  .b-p2{background:var(--off-bg);color:var(--off)}
+  .b-tbd{background:var(--tbd-bg);color:var(--tbd)}
+  .b-asm{background:#e8f0fe;color:#1a4fa0}
+  .b-judg{background:#f3e8fd;color:#6b21a8}
+  .b-ok{background:var(--ok-bg);color:var(--ok)}
+  .b-warn{background:var(--warn-bg);color:var(--warn)}
+  .b-err{background:var(--err-bg);color:var(--err)}
+  .b-off{background:var(--off-bg);color:var(--off)}
+  .b-brand{background:var(--brand-soft);color:var(--brand)}
+  mark{background:var(--tbd-bg);color:var(--tbd);padding:0 5px;border-radius:3px}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin:14px 0}
+  .callout{border-left:4px solid var(--brand);background:var(--brand-soft);
+           border-radius:0 8px 8px 0;padding:12px 16px;margin:14px 0;color:var(--ink-2)}
+  .callout.warn{border-color:#d97706;background:#fffbeb}
+  .callout.err{border-color:var(--err);background:var(--err-bg)}
+  .callout .co-t{font-weight:700;color:var(--ink);display:block;margin-bottom:2px}
+  .frid{font-family:var(--mono);background:var(--ink);color:#fff;border-radius:5px;
+        padding:2px 9px;font-size:13px;font-weight:700;margin-right:8px}
+  .frhead{display:flex;align-items:center;margin-bottom:6px}
+  .frhead .prio{margin-left:auto}
+
+  /* ---------- demo frame ---------- */
+  .demo{margin:18px 0 26px;border-radius:12px;overflow:hidden;
+        border:1px solid #27334a;box-shadow:0 12px 32px rgba(15,23,42,.18)}
+  .demo-bar{background:#1b2435;color:#aab6cc;padding:9px 16px;font-size:12.5px;
+            display:flex;align-items:center;gap:8px;font-family:var(--mono)}
+  .demo-bar .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+  .demo-cap{background:#121a2b;color:#8fa0bd;padding:8px 16px;font-size:12.5px;border-top:1px solid #27334a}
+  .demo-cap b{color:#c8d5ea}
+  .demo-body{background:#0e1524;color:#dbe4f0;padding:16px;font-size:13px}
+  .demo-body .btn{cursor:pointer;border:none;border-radius:6px;padding:6px 14px;font-size:12.5px;
+        font-weight:600;color:#e8eefc;background:#3b5bdb;margin:2px 4px 2px 0}
+  .demo-body .btn:hover{background:#4c6cf0}
+  .demo-body .btn.ghost{background:transparent;border:1px solid #3d4d6b;color:#aebad0}
+  .demo-body .btn.danger{background:#b3372b}
+  .demo-body .btn.danger:hover{background:#cc4437}
+  .demo-body .btn:disabled{opacity:.45;cursor:not-allowed}
+  .demo-body table{background:#131c30;color:#c6d2e6;border:1px solid #27334a;font-size:12.5px}
+  .demo-body th{background:#1a2438;border-color:#27334a;color:#dce6f5}
+  .demo-body td{border-color:#27334a;background:transparent}
+  .demo-body tr:nth-child(even) td{background:#111a2d}
+  .demo-body input[type=text],.demo-body textarea{background:#0b1220;border:1px solid #33415f;color:#e6edf9;
+        border-radius:6px;padding:7px 10px;font-size:12.5px;width:100%;font-family:var(--mono)}
+  .demo-body textarea{resize:vertical}
+  .demo-body input:focus,.demo-body textarea:focus{outline:1px solid #3b5bdb}
+  .statuspill{display:inline-block;padding:1px 10px;border-radius:20px;font-size:11.5px;font-weight:700;line-height:19px}
+  .st-idle{background:#0c2e1d;color:#3ddc97;border:1px solid #1c5a3c}
+  .st-busy{background:#2b2110;color:#ffce54;border:1px solid #6b5418}
+  .st-errS{background:#33100c;color:#ff7a68;border:1px solid #7a2a1f}
+  .st-unk{background:#1a2233;color:#7b8aa5;border:1px solid #2c3a55}
+  .envpill{display:inline-block;padding:0 8px;border-radius:5px;font-size:11px;font-weight:600;line-height:19px;font-family:var(--mono)}
+  .env-conda{background:#0d2f4a;color:#5db8ff}
+  .env-venv{background:#2a1e46;color:#c39dff}
+  .env-sys{background:#26303f;color:#9fb0c8}
+  .env-x{background:#3a1420;color:#ff8fa3}
+
+  .gpu-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin:10px 0}
+  .gpu-card{border:1px solid #27334a;border-radius:9px;padding:10px 12px;background:#111a2d;cursor:pointer;position:relative}
+  .gpu-card:hover{border-color:#3b5bdb}
+  .gpu-card.sel{border-color:#3b5bdb;box-shadow:0 0 0 1px #3b5bdb}
+  .gpu-card.disoffline{opacity:.62;cursor:default}
+  .gpu-card .gname{font-weight:700;font-size:12.8px;color:#e7eefb;display:flex;justify-content:space-between;gap:6px}
+  .gpu-card .gmem{font-family:var(--mono);font-size:11.5px;color:#93a4c1;margin-top:3px}
+  .bar{height:7px;border-radius:4px;background:#1c2740;overflow:hidden;margin:7px 0 4px}
+  .bar i{display:block;height:100%;border-radius:4px}
+  .gmeta{display:flex;justify-content:space-between;font-size:11px;color:#7d8db0;font-family:var(--mono)}
+  .goff{grid-column:1/-1;border:1px dashed #3d4a63;border-radius:9px;padding:10px 14px;color:#8fa0bd;background:#0d1424;font-size:12.5px}
+
+  .sumbar{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 10px}
+  .sumbar .chip{background:#131c30;border:1px solid #27334a;border-radius:7px;padding:4px 12px;font-size:12px;color:#c6d2e6}
+  .sumbar .chip b{font-family:var(--mono)}
+
+  .modal-mask{position:fixed;inset:0;background:rgba(4,8,18,.62);display:flex;align-items:center;justify-content:center;z-index:50}
+  .modal{background:#111a2d;border:1px solid #33415f;border-radius:12px;max-width:520px;width:92%;padding:18px 20px;color:#dbe4f0;font-size:13px;box-shadow:0 24px 64px rgba(0,0,0,.5)}
+  .modal h5{margin:0 0 10px;font-size:15px;color:#fff}
+  .modal .kv{font-size:12.5px;color:#9fb0c8;margin:2px 0}
+  .modal .kv b{color:#dbe4f0;font-family:var(--mono);font-weight:600}
+  .demo-body .hint{font-size:11.5px;color:#7d8db0;margin-top:4px}
+
+  .audit-strip{margin-top:10px;border-top:1px dashed #2c3a55;padding-top:10px}
+  .audit-strip .ttl{font-size:11.5px;color:#8fa0bd;letter-spacing:.1em;margin-bottom:6px;font-family:var(--mono)}
+  .audit-line{font-family:var(--mono);font-size:11.8px;color:#9fb0c8;padding:2px 0;animation:slidein .35s ease}
+  .audit-line b{color:#e7eefb}
+  @keyframes slidein{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+
+  .flowsteps{counter-reset:s;margin:10px 0;display:grid;gap:0}
+  .flowsteps .step{position:relative;padding:8px 0 8px 44px;color:var(--ink-2)}
+  .flowsteps .step::before{counter-increment:s;content:counter(s);position:absolute;left:0;top:9px;
+        width:26px;height:26px;border-radius:50%;background:var(--brand-soft);color:var(--brand);
+        font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center}
+  .flowsteps .step::after{content:"";position:absolute;left:12.5px;top:40px;bottom:-6px;width:2px;background:var(--line)}
+  .flowsteps .step:last-child::after{display:none}
+  .flowsteps .step b{color:var(--ink)}
+
+  .state-table td:first-child{white-space:nowrap}
+  .twocol{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media (max-width:820px){.twocol{display:block}}
+  .fieldreq{font-size:12px;color:var(--ink-3)}
+  .qitem{margin:10px 0}
+  .qitem .qq{font-weight:700;color:var(--ink)}
+  .anchor{scroll-margin-top:20px}
+  .small{font-size:12.5px;color:var(--ink-3)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="doc">
+  <div class="eyebrow">Product Requirements Document</div>
+  <h1>GPU 管理系统 — 产品需求文档</h1>
+  <p class="doc-sub">基于 OpenPAI（microsoft/pai）深度魔改的共享 GPU 集群管理系统</p>
+  <div class="doc-meta">
+    <span class="badge b-brand">版本 v0.1（评审稿）</span>
+    <span class="badge b-off">日期 2026-10-22</span>
+    <span class="badge b-p0">P0 = 首版必交付</span>
+    <span class="badge b-p1">P1 = 一期后迭代</span>
+    <span class="badge b-p2">P2 = 远期规划</span>
+    <span class="badge b-tbd">TBD = 待用户评审确认</span>
+  </div>
+</header>
+
+<div class="layout">
+<nav class="toc">
+  <div class="toc-title">目录</div>
+  <a href="#s1">1 背景与目标</a>
+  <a href="#s2">2 产品契约</a>
+  <a href="#s3">3 范围与优先级</a>
+  <a href="#s4">4 角色与对象模型</a>
+  <a href="#s5">5 功能需求</a>
+  <a href="#fr1">FR-1 节点接入管理</a>
+  <a href="#fr2">FR-2 显卡实时监控</a>
+  <a href="#fr3">FR-3 进程与虚拟环境追踪</a>
+  <a href="#fr4">FR-4 管理员与终止控制</a>
+  <a href="#fr5">FR-5 审计日志</a>
+  <a href="#fr6">FR-6 告警与通知</a>
+  <a href="#fr7">FR-7 统计报表</a>
+  <a href="#fr8">FR-8 硬件健康</a>
+  <a href="#fr9">FR-9 普通用户视图</a>
+  <a href="#fr10">FR-10 预约与配额</a>
+  <a href="#fr11">FR-11 异常进程检测</a>
+  <a href="#fr12">FR-12 开放 API</a>
+  <a href="#s6">6 共享规则与数据口径</a>
+  <a href="#s7">7 需求映射与补充建议</a>
+  <a href="#s8">8 开放问题</a>
+  <a href="#s9">9 术语表</a>
+</nav>
+
+<main>
+
+<!-- ================= 1 背景与目标 ================= -->
+<section id="s1" class="anchor">
+<h2>1 背景与目标</h2>
+
+<h3>1.1 现状与问题</h3>
+<p>OpenPAI 是微软开源的完整 AI 平台，围绕<strong>"作业（Job）"</strong>组织能力：作业提交与排队、Jupyter 交互开发、用户/组/配额管理，以及基于监控组件的集群指标。它解决的是"平台代管任务"的场景。</p>
+<p>但在高校实验室与中型研发团队的真实运转中，还存在一个 OpenPAI 未直接覆盖的场景：<strong>用户绕过平台、直接在 GPU 机器上运行任务</strong>。典型表现为：</p>
+<ul>
+  <li>用户通过终端登录 GPU 机器，在自己熟悉的 conda / venv 虚拟环境中直接启动训练脚本，而非向平台提交作业；</li>
+  <li>任务长期占用显卡、训练结束后忘记释放，管理员需要逐台登录机器才能知道"这张卡现在谁在用、跑在哪个环境、占了多少显存"；</li>
+  <li>发现违规占用后，缺少一个受控的、有留痕的<strong>一键终止</strong>入口，只能手动逐台处理；</li>
+  <li>新采购或新上架的 GPU 机器，接入集群缺少一个统一的<strong>资产登记</strong>动作，卡数、型号、显存规格全靠人工记录。</li>
+</ul>
+<div class="callout warn">
+  <span class="co-t">核心矛盾</span>
+  OpenPAI 以"作业"为中心，而实验室日常管理需要以<strong>"显卡"为中心</strong>：管理员视角下的最小问题不是"作业排队多久"，而是"这张卡现在被谁、用哪个环境、占了多少显存，以及我能不能立刻释放它"。
+</div>
+
+<h3>1.2 产品决策</h3>
+<p>在 OpenPAI 现有代码基础上深度魔改，将产品重心从"作业调度平台"改造为<strong>"GPU 资产管理与实时管控系统"</strong>：节点批量接入、显卡级实时监控、进程归属与虚拟环境追踪、管理员高权限终止控制，全程审计留痕。原 OpenPAI 的作业提交/Jupyter 等能力与本次改造的关系见 <a href="#s8">第 8 节开放问题 Q1</a>。</p>
+
+<h3>1.3 目标（以可观察行为表述）</h3>
+<table>
+  <tr><th style="width:220px">目标</th><th>可观察的完成证据</th></tr>
+  <tr><td>裸 IP 清单一键变为受管资产</td><td>管理员粘贴一批 IP 并提交后，全部可达节点自动登记入册，且每台节点的显卡（型号、总显存、序号）被自动发现并出现在总览页；失败的 IP 逐条给出失败原因。</td></tr>
+  <tr><td>每张显卡实时可见</td><td>总览页在 <mark>5 秒</mark> 采集/刷新周期内反映每张卡的状态、已用显存、总显存、利用率与温度；节点失联时卡片明确显示"状态未知"，不展示过期数据冒充实时数据。</td></tr>
+  <tr><td>占用可追责到"人 + 环境"</td><td>点击任意显卡可看到其上每个进程的 PID、属主用户、来源 Python 虚拟环境名、显存占用与运行时长；卡级显存与进程级显存的差额以"其他/系统占用"单独列示。</td></tr>
+  <tr><td>高权限终止受控且留痕</td><td>管理员可对任意在线显卡上的任意进程发起终止：系统强制二次确认（输入目标 PID）并要求填写原因，先优雅终止、宽限期 <mark>30 秒</mark> 后强制终止；结果即时反馈并写入不可删改的审计记录。</td></tr>
+</table>
+<p class="small">注：<mark>TBD 标记</mark>为本文档给出的默认值，允许在评审时修改；修改后即为该规则的唯一口径（见第 6 节）。</p>
+</section>
+
+<!-- ================= 2 产品契约 ================= -->
+<section id="s2" class="anchor">
+<h2>2 产品契约</h2>
+<table>
+  <tr><th style="width:180px">要素</th><th>定义</th></tr>
+  <tr><td>主要用户</td><td>实验室 / 团队的 <strong>GPU 管理员</strong>（对全部 GPU 资产与进程拥有最高权限的运维角色）。普通用户自助视图为 P1（FR-9）。</td></tr>
+  <tr><td>触发场景</td><td>① 新机器上架，管理员拿到一批裸 IP 清单；② 例行巡检"哪些卡空着"；③ 接到"某卡被长期占用/疑似异常进程"的投诉，需要定位并处理。</td></tr>
+  <tr><td>核心任务（P0 旅程）</td><td>绑定节点 → 总览看到每张卡的实时状态与显存 → 下钻看到占用进程及其虚拟环境归属 → 确认后终止违规进程 → 全程可审计回溯。</td></tr>
+  <tr><td>完成证据</td><td>节点与显卡出现在总览；终止指令发出后目标进程从卡上消失、已用显存回落、审计记录出现对应条目。</td></tr>
+  <tr><td>共享业务对象</td><td>GPU 节点（机器）、显卡、进程、审计记录。定义与字段见第 4 节。</td></tr>
+  <tr><td>信任与风险规则</td><td>终止他人进程、删除节点均属不可逆高危操作：一律强制二次确认 + 原因必填 + 审计留痕（FR-4、FR-5、第 6.5 节）。</td></tr>
+</table>
+</section>
+
+<!-- ================= 3 范围 ================= -->
+<section id="s3" class="anchor">
+<h2>3 范围与优先级</h2>
+
+<h3>3.1 最小完整旅程（P0）</h3>
+<div class="flowsteps">
+  <div class="step"><b>入场</b>：管理员首次部署时创建管理员账号（FR-4），登录系统。</div>
+  <div class="step"><b>接入</b>：粘贴/批量录入全部 GPU 节点 IP，系统校验并自动发现每节点显卡清单（FR-1）。</div>
+  <div class="step"><b>观测</b>：总览页实时看到每张卡的状态、已用/总显存、利用率、温度（FR-2）。</div>
+  <div class="step"><b>下钻</b>：点击显卡查看占用进程、属主、Python 虚拟环境、显存占用（FR-3）。</div>
+  <div class="step"><b>处置</b>：对违规进程走"二次确认 + 原因必填 → 优雅终止 → 宽限强杀"流程（FR-4）。</div>
+  <div class="step"><b>回溯</b>：任何时刻可在审计页查到"谁在何时终止了谁的黑匣子记录"（FR-5）。</div>
+  <div class="step"><b>恢复</b>：接入失败的 IP 可修正后重试（FR-1）；节点失联自动转"离线"并在恢复后自动回"在线"（第 6.3 节），无需人工重新绑定。</div>
+</div>
+
+<h3>3.2 优先级划分</h3>
+<table>
+  <tr><th style="width:90px">级别</th><th>内容</th><th style="width:180px">理由</th></tr>
+  <tr><td><span class="badge b-p0">P0 首版必交付</span></td><td>FR-1 节点接入管理、FR-2 显卡实时监控、FR-3 进程与虚拟环境追踪、FR-4 管理员认证与终止控制、FR-5 审计日志</td><td>四项原始需求 + 审计。审计被列为 P0 的理由：终止他人进程属不可逆高风险操作，无留痕则该功能不应上线（产品判断）。</td></tr>
+  <tr><td><span class="badge b-p1">P1 第一轮迭代</span></td><td>FR-6 告警与通知、FR-7 统计报表、FR-8 硬件健康监控、FR-9 普通用户自助视图</td><td>共享集群进入"多用户共治"阶段后成为刚需，但不阻塞首版核心旅程。</td></tr>
+  <tr><td><span class="badge b-p2">P2 远期规划</span></td><td>FR-10 GPU 预约与配额、FR-11 异常进程检测、FR-12 开放 API</td><td>依赖 P1 数据积累或组织规则成熟后才有意义。</td></tr>
+</table>
+
+<h3>3.3 明确不做（首版排除）</h3>
+<ul>
+  <li><strong>不重建作业调度器</strong>：不开发新的作业排队/调度内核；OpenPAI 原有调度能力是否保留见开放问题 Q1，首版按"不依赖其运行"设计。</li>
+  <li><strong>不做远程文件管理 / 代码编辑器</strong>：不属于"卡资产管理"旅程。</li>
+  <li><strong>不做显卡资源虚拟化/切分</strong>（如 MIG 细粒度划分的自动化编排）：仅只读展示厂商已有的切分信息（如有）。</li>
+  <li><strong>不承诺跨网段 / NAT 穿透</strong>：首版假设全部节点与管理系统网络互通 <span class="badge b-asm">假设</span>。</li>
+</ul>
+</section>
+
+<!-- ================= 4 角色与对象模型 ================= -->
+<section id="s4" class="anchor">
+<h2>4 角色与对象模型</h2>
+
+<h3>4.1 角色与权限矩阵</h3>
+<p>首版只有一个显式角色（管理员）。矩阵同时给出 P1 引入普通用户后的目标态，避免首版设计堵死演进路径。</p>
+<table>
+  <tr><th>操作</th><th>管理员（P0）</th><th>普通用户（P1 目标态）</th></tr>
+  <tr><td>批量绑定 / 新增 / 删除 / 维护节点</td><td>允许</td><td>禁止</td></tr>
+  <tr><td>查看全部显卡实时状态与占用明细</td><td>允许</td><td>允许只读（是否开放全部卡给所有登录用户：<mark>待定</mark>，默认开放总览、明细仅限本人占用的卡）</td></tr>
+  <tr><td>终止进程</td><td>任意进程</td><td>仅本人属主的进程</td></tr>
+  <tr><td>查看审计日志</td><td>全部记录</td><td>仅与自己相关的记录</td></tr>
+  <tr><td>告警规则管理（FR-6）</td><td>允许</td><td>禁止</td></tr>
+  <tr><td>管理员账号管理（增删管理员、重置密码）</td><td>允许（须 Existing 管理员执行，见 4.4）</td><td>禁止</td></tr>
+</table>
+
+<h3>4.2 对象模型</h3>
+<table>
+  <tr><th style="width:130px">对象</th><th>关键字段</th><th>说明</th></tr>
+  <tr><td><strong>GPU 节点</strong><br><span class="fieldreq">绑定/IP 管理的真正对象</span></td><td>节点名（可改）、IP、端口、访问凭据（加密存储、永不明文回显）、分组标签、状态、接入时间、显卡数、驱动版本、最后心跳时间</td><td>一台物理机一个 IP；"显卡的 IP"在物理上不可分——IP 挂在节点上，显卡随节点接入后<strong>自动逐张发现并登记</strong>。</td></tr>
+  <tr><td><strong>显卡</strong></td><td>GPU 索引、型号、总显存(MB)、UUID、所属节点、当前已用显存(MB)、利用率(%)、温度、功耗、状态</td><td>总显存、型号、UUID 在节点接入时固化登记，不随后续热插拔静默变化；如检测到与登记不符（换卡），标记"硬件变更"提示管理员确认（异常态，见 6.6）。</td></tr>
+  <tr><td><strong>进程</strong></td><td>PID、属主用户（节点系统用户名）、可执行名、命令行摘要、虚拟环境名、环境类型、显存占用(MB)、启动时间、运行时长、状态</td><td>同一节点内 PID 唯一定位；跨节点须以"节点 + PID"联合定位。</td></tr>
+  <tr><td><strong>审计记录</strong></td><td>时间、操作者、动作、目标对象、原因、结果</td><td>只增不改不删（FR-5）。</td></tr>
+</table>
+
+<h3>4.3 状态机</h3>
+<div class="twocol">
+<div class="card">
+<h4>节点状态</h4>
+<table class="state-table">
+  <tr><th>状态</th><th>进入条件</th><th>允许的操作</th></tr>
+  <tr><td>接入验证中</td><td>管理员提交绑定后</td><td>查看进度；失败后修正重试</td></tr>
+  <tr><td>在线</td><td>验证通过且心跳正常</td><td>全部操作</td></tr>
+  <tr><td>离线</td><td>连续 <mark>3</mark> 个采集周期无心跳</td><td>可删除（其卡显示"状态未知"）；不可发起进程终止</td></tr>
+  <tr><td>维护中</td><td>管理员手动设置（如升级驱动）</td><td>不参与空闲统计、不接收新告警；可恢复在线</td></tr>
+</table>
+<p class="small">状态迁移：验证中 →（通过）在线 / （失败）接入失败（终态，可重试）；在线 ⇄ 离线（自动双向）；在线 ⇄ 维护中（手动双向）。</p>
+</div>
+<div class="card">
+<h4>显卡状态</h4>
+<table class="state-table">
+  <tr><th>状态</th><th>判定规则（唯一口径）</th></tr>
+  <tr><td>空闲</td><td>卡上无运行中的受管进程，且已用显存 ≤ <mark>500 MB</mark>（驱动基础占用阈值，可配置）</td></tr>
+  <tr><td>占用中</td><td>存在至少一个运行中的占用进程</td></tr>
+  <tr><td>故障</td><td>驱动上报错误（如 ECC 错误、掉卡）或采集持续异常</td></tr>
+  <tr><td>状态未知</td><td>所属节点离线/维护中——<strong>绝不沿用旧数据</strong>，界面必须显示未知而非最后一次快照</td></tr>
+</table>
+<p class="small">"占用中"与"空闲"互斥且由 6.1 节口径唯一计算；"空闲但显存异常高"（无进程却 >阈值）单独提示为疑似泄漏，状态仍为空闲并附黄色警示角标。</p>
+</div>
+</div>
+<p><strong>进程状态</strong>：运行中 →（优雅终止退出）已退出 /（宽限期超时被强杀）已强制终止 /（期间自行退出）已自行退出。终态进程保留展示 <mark>10 分钟</mark> 后从实时视图消失。</p>
+
+<h3>4.4 管理员账号规则</h3>
+<ul>
+  <li><strong>首次创建</strong>：首次部署进入引导页，强制创建首个管理员（用户名 + 密码 + 确认密码）；创建完成前系统拒绝任何其他操作 <span class="badge b-asm">假设：无内置默认口令，避免弱口令上线</span>。</li>
+  <li><strong>多管理员</strong>：允许存在多名管理员；任何在职管理员可新增/停用其他管理员账号，停用自己需要另一名管理员确认 <mark>待定：是否限制最少保留 1 名</mark>。</li>
+  <li><strong>密码策略</strong>：最小长度 <mark>10 位</mark>，须含字母与数字；修改密码须验证旧密码；连续失败 <mark>5</mark> 次锁定 <mark>15 分钟</mark>；会话闲置 <mark>12 小时</mark> 过期（均可配置）。</li>
+  <li><strong>敏感数据边界</strong>：节点访问凭据仅写入加密存储，任何界面与接口不回显明文，仅显示"已配置/未配置"。</li>
+</ul>
+</section>
+
+<!-- ================= 5 功能需求 ================= -->
+<section id="s5" class="anchor">
+<h2>5 功能需求</h2>
+<p>以下 FR-1 ~ FR-4 逐条覆盖四项原始需求；FR-5 起为补充能力（对应用户提出的"遗漏功能"问题，汇总见第 7 节）。每个模块按：目的 → 触发 → 处理规则 → 结果与状态变化 → 异常展开。</p>
+
+<!-- ---------- FR-1 ---------- -->
+<h3 id="fr1" class="anchor"><span class="frid">FR-1</span>GPU 节点接入管理 <span class="prio"><span class="badge b-p0">P0</span></span></h3>
+<p><strong>目的</strong>：让管理员用一次操作把全部 GPU 机器登记入册，并自动获得每台机器的显卡资产清单；支持后续增删。</p>
+
+<h4>FR-1.1 批量绑定（对应原始需求 1）</h4>
+<table>
+  <tr><th style="width:170px">项</th><th>规则</th></tr>
+  <tr><td>触发</td><td>管理员在"节点管理"页点击【批量绑定】，进入录入界面。</td></tr>
+  <tr><td>录入方式</td><td>① 文本框粘贴多行，每行 <code>IP</code> 或 <code>IP:端口</code>（端口缺省用凭据中的默认端口）；② 上传 CSV/TXT 文件，格式同 ①。</td></tr>
+  <tr><td>格式校验</td><td>仅支持 IPv4 <span class="badge b-asm">假设：实验室为内网 IPv4</span>；非法行、重复行、与已绑定节点冲突的行<strong>不阻断整批</strong>，逐行标注后跳过。</td></tr>
+  <tr><td>访问凭据</td><td>整批共用一套节点凭据（用户名 + 密码/密钥）；绑定成功后可对单节点单独替换（FR-1.4）。</td></tr>
+  <tr><td>接入验证（逐节点）</td><td>绑定即验证，逐台展示四步进度：① 网络可达 → ② 可登录 → ③ 可采集 GPU 清单 → ④ 登记显卡资产。任意一步失败即停止后续步骤并给出该步的失败原因。</td></tr>
+  <tr><td>显卡自动发现</td><td>步骤 ③ 通过后，系统读取该节点显卡清单：GPU 索引、型号、总显存、UUID，固化为显卡档案；卡数以实际发现为准，不要求管理员填写。</td></tr>
+  <tr><td>结果与状态</td><td>全部行处理完毕后显示汇总：成功 N 台、失败 M 台、跳过 K 条；成功节点状态转"在线"，失败行可修正后重试。</td></tr>
+</table>
+<div class="callout">
+  <span class="co-t">产品判断：绑定对象是"节点"而非"显卡"</span>
+  原始需求表述为"把所有 GPU 显卡的 IP 绑定至系统"。一张显卡没有独立 IP，IP 属于机器；一台机器可插 1~N 张卡。因此本系统把 <strong>IP 绑定在节点层</strong>，显卡在节点接入成功后自动逐张发现登记——管理员永远不需要手工录卡。
+</div>
+
+<h4>FR-1.2 新增单个节点</h4>
+<p>入口与交互同批量绑定，仅一次处理一行；适用于零星扩容。</p>
+
+<h4>FR-1.3 删除节点</h4>
+<table>
+  <tr><th style="width:170px">项</th><th>规则</th></tr>
+  <tr><td>触发</td><td>节点行【删除】按钮。</td></tr>
+  <tr><td>默认阻止</td><td>若节点在线且其显卡上存在运行中的占用进程，删除被<strong>阻止</strong>，弹窗列出受影响进程（属主、PID、显存）。</td></tr>
+  <tr><td>强制下线</td><td>弹窗内提供"强制终止该节点全部进程并删除"复选框；勾选后须输入节点 IP 文本确认方可执行。强制路径同样走 FR-4 的优雅终止 → 宽限 → 强杀规则，并逐条写审计。</td></tr>
+  <tr><td>离线节点</td><td>离线节点删除不受进程阻止（进程状态本已不可控），但须输入 IP 确认。</td></tr>
+  <tr><td>删除后果</td><td>节点与其显卡从实时视图与统计中消失；历史数据（报表、审计）中的既有记录保留该节点标识。删除不可撤销；重新绑定同 IP 视为全新节点（显卡档案重建）。</td></tr>
+</table>
+
+<h4>FR-1.4 节点维护</h4>
+<ul>
+  <li>可编辑：节点名、分组标签、访问凭据（凭据变更后立即做一次连通验证）。</li>
+  <li>维护模式：置为"维护中"后，该节点不参与空闲率统计、不产生离线告警（FR-6），其卡显示"状态未知"。</li>
+</ul>
+
+<h4>FR-1.5 异常与边界</h4>
+<ul>
+  <li>同一 IP 重复绑定：粘贴清单内部重复 → 后行标"重复，跳过"；与已绑定节点重复 → 标"已存在，跳过"。不创建重复档案。</li>
+  <li>接入验证超时单步 <mark>15 秒</mark>；整批并行验证，单台失败不影响其他台。</li>
+  <li>绑定后立即失联（验证通过但首个心跳即失败）：节点保留"在线"直至心跳超时规则（6.3）生效转"离线"，并给出"该节点接入后未上报心跳"的显式提示。</li>
+  <li>显卡档案与实际不符（换卡/加减卡）：出现"硬件变更"告警，管理员确认后更新档案；未确认前以"状态未知"呈现变动卡位。</li>
+</ul>
+
+<!-- DEMO 1 -->
+<div class="demo">
+  <div class="demo-bar">
+    <span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span>
+    <span style="margin-left:8px">交互演示 D1 — 批量绑定 / 校验 / 删除（对应 FR-1，可在页面上直接操作）</span>
+  </div>
+  <div class="demo-body">
+    <div style="margin-bottom:10px">
+      <button class="btn" id="d1-open-bind">批量绑定节点</button>
+      <button class="btn ghost" id="d1-add-one">新增节点</button>
+      <span class="hint" style="display:inline;margin-left:8px">演示数据：lab-a 在线 4 卡；lab-b 在线 4 卡且 GPU0 有占用进程（用于体验"删除被阻止"）</span>
+    </div>
+    <table id="d1-node-table">
+      <thead><tr><th>节点名</th><th>IP:端口</th><th>分组</th><th>显卡</th><th>驱动</th><th>最后心跳</th><th>状态</th><th>操作</th></tr></thead>
+      <tbody id="d1-nodes"></tbody>
+    </table>
+    <div id="d1-empty" class="goff" style="display:none;margin-top:10px">还没有任何节点。点击"批量绑定节点"录入首批 GPU 机器。</div>
+    <div class="audit-strip" id="d1-audit"><div class="ttl">AUDIT TRAIL（本演示产生的审计记录）</div><div id="d1-audit-lines"></div></div>
+  </div>
+  <div class="demo-cap"><b>演示要点</b>：粘贴 IP 后逐行校验（有效 / 重复 / 格式错误三种态）；接入验证逐步推进并可能出现失败行与失败原因；删除有活动进程的节点默认被阻止，勾选"强制终止"并输入 IP 确认后方可删除。</div>
+</div>
+
+<!-- ---------- FR-2 ---------- -->
+<h3 id="fr2" class="anchor"><span class="frid">FR-2</span>显卡实时监控总览 <span class="prio"><span class="badge b-p0">P0</span></span></h3>
+<p><strong>目的</strong>（对应原始需求 2）：管理员打开系统第一眼即回答"现在哪些卡空着、哪些卡被占、占了多少、卡本身多大"。</p>
+<table>
+  <tr><th style="width:170px">项</th><th>规则</th></tr>
+  <tr><td>触发与布局</td><td>登录后默认页。顶部汇总条 + 按节点分组的显卡卡片矩阵。每卡展示：节点名+GPU 索引、型号、状态色标、<strong>已用显存 / 总显存</strong>（数字 + 进度条）、利用率、温度、占用进程数。</td></tr>
+  <tr><td>汇总条</td><td>总卡数、空闲 / 占用中 / 故障 / 状态未知分项计数，总显存与已用显存合计，空闲率。</td></tr>
+  <tr><td>实时口径</td><td>采集周期默认 <mark>5 秒</mark>（可配置 <mark>1–60 秒</mark>）；页面自动刷新同频，可手动暂停/恢复。超过 2 个周期未更新时页面顶部出现"数据延迟"提示条。</td></tr>
+  <tr><td>筛选与排序</td><td>按节点分组标签筛选；按状态过滤（只看空闲 / 只看占用）；同节点内按 GPU 索引排序。</td></tr>
+  <tr><td>下钻</td><td>点击任意"占用中"卡片展开该卡进程面板（FR-3）；点击"空闲但显存异常"卡同样展开，显示"无进程 + 疑似显存泄漏"提示。</td></tr>
+  <tr><td>状态渲染规则</td><td>占用中（蓝/橙）、空闲（绿）、故障（红）、状态未知（灰且禁用下钻，附"节点离线"原因）。</td></tr>
+  <tr><td>异常与空态</td><td>① 零节点：引导页指向 FR-1；② 全部离线：矩阵灰显 + "集群失联"横幅；③ 单节点离线：该组显示"心跳超时"占位条，不渲染旧数据。</td></tr>
+</table>
+
+<!-- ---------- FR-3 ---------- -->
+<h3 id="fr3" class="anchor"><span class="frid">FR-3</span>进程与 Python 虚拟环境追踪 <span class="prio"><span class="badge b-p0">P0</span></span></h3>
+<p><strong>目的</strong>（对应原始需求 3）：回答"这张卡上的占用进程来自哪个虚拟环境、是谁启动的、占了多少显存、跑了多久"。</p>
+<table>
+  <tr><th style="width:170px">项</th><th>规则</th></tr>
+  <tr><td>触发</td><td>总览页点击显卡卡片（或从告警/审计链接跳转到某卡）。</td></tr>
+  <tr><td>进程面板字段</td><td>PID、属主用户（节点系统用户名）、可执行名 + 命令行摘要、<strong>虚拟环境徽章</strong>、显存占用(MB)、启动时间、运行时长、操作（终止，权限见 4.1）。</td></tr>
+  <tr><td>显存勾稽</td><td>面板底部固定一行"其他/系统占用 = 卡已用显存 − Σ进程显存"。该值 ≥ 0 恒成立；若出现负数视为采集异常，显示"—"并触发数据质量提示（6.6）。</td></tr>
+</table>
+<h4>虚拟环境识别规则（全系统唯一口径，见 6.2）</h4>
+<table>
+  <tr><th>进程可执行路径特征</th><th>展示为</th><th>示例</th></tr>
+  <tr><td>conda 环境目录 <code>envs/&lt;名称&gt;</code> 下的解释器</td><td><span class="envpill env-conda">conda:llm-ft</span>（环境名）</td><td><code>.../envs/llm-ft/bin/python</code> → conda:llm-ft</td></tr>
+  <tr><td>venv / .venv / virtualenv 目录下的解释器</td><td><span class="envpill env-venv">venv:rag-eval</span>（取虚拟环境根目录名）</td><td><code>~/proj/rag-eval/.venv/bin/python</code> → venv:rag-eval</td></tr>
+  <tr><td>系统解释器路径（无虚拟环境特征）</td><td><span class="envpill env-sys">system-python</span></td><td><code>/usr/bin/python3</code></td></tr>
+  <tr><td>非 Python 可执行</td><td><span class="envpill env-x">非Python: &lt;可执行名&gt;</span></td><td>二进制、bash 子进程等</td></tr>
+  <tr><td>信息不可读取（属主受限）</td><td><span class="envpill env-x">未知</span>，同行的属主、命令行同样降级为"不可读"</td><td>跨用户权限受限时</td></tr>
+</table>
+<p class="small">规则说明：识别依据为进程可执行路径与命令行的组合特征（产品口径）；识别在节点侧完成，仅向管理端回传解析后的环境名与路径，避免回传敏感环境变量。</p>
+<h4>异常与边界</h4>
+<ul>
+  <li>同一 PID 短时间反复出现/消失（秒级任务）：合并展示为"高频短任务"，避免面板抖动。</li>
+  <li>属主为 root 或系统账户的进程：正常展示，但终止时额外警示（终止系统组件可能导致节点失联）。</li>
+  <li>容器内进程 <mark>待定：首版假设进程直接运行于节点操作系统，非容器化。若存在容器化作业（OpenPAI 作业即如此），显示容器标识而非虚拟环境——见开放问题 Q1</mark>。</li>
+</ul>
+
+<!-- ---------- FR-4 ---------- -->
+<h3 id="fr4" class="anchor"><span class="frid">FR-4</span>管理员认证与进程终止控制 <span class="prio"><span class="badge b-p0">P0</span></span></h3>
+<p><strong>目的</strong>（对应原始需求 4）：以"单一最高权限角色 + 受控高危操作"的方式，让管理员能安全地终止任意显卡上的任意进程。</p>
+<h4>FR-4.1 认证与会话</h4>
+<ul>
+  <li>全部页面与接口须登录后访问；首次部署强制创建管理员（4.4）。</li>
+  <li>登录/登出、密码策略、锁定与会话过期规则见 4.4；登录成功与失败均写审计（FR-5）。</li>
+</ul>
+<h4>FR-4.2 终止任意进程（核心高危流）</h4>
+<div class="flowsteps">
+  <div class="step"><b>发起</b>：进程面板点击【终止】。管理员对任意进程有终止权，无属主限制。</div>
+  <div class="step"><b>确认弹窗</b>：展示目标进程完整档案（节点、GPU、PID、属主、环境、命令、显存、运行时长）；<strong>原因必填</strong>（写入审计）；须在输入框中<strong>输入目标 PID 数字</strong>，按钮方可点亮——防止误杀与"闭眼点确认"。</div>
+  <div class="step"><b>执行（优雅优先）</b>：先向目标进程发送可捕获的终止信号并进入宽限期 <mark>30 秒</mark>；宽限期内界面实时显示该进程状态与倒计时。进程若自行退出（含响应信号清理后退出），流程结束，记录结果"优雅退出"。</div>
+  <div class="step"><b>强杀兜底</b>：宽限期届满仍在运行 → 发送不可捕获信号强制终止，记录结果"强制终止"。</div>
+  <div class="step"><b>结果反馈与状态变化</b>：成功 → 进程行转终态并淡出，卡已用显存按下一采集周期回落，审计落账；失败 → 显示具体失败原因并保留重试入口。</div>
+  <div class="step"><b>通知</b>：被终止进程的属主用户收到站内通知（P1 接入邮件/Webhook，FR-6）。</div>
+</div>
+<h4>FR-4.3 终止的异常分支</h4>
+<table>
+  <tr><th style="width:240px">情形</th><th>系统行为</th></tr>
+  <tr><td>宽限期内进程自行退出</td><td>正常结束，结果记"自行退出（宽限期内）"，不重复发送强杀信号。</td></tr>
+  <tr><td>发起时进程已不存在</td><td>提示"进程已退出"，无副作用，不写终止审计（写一条"目标已消失"的备注记录）。</td></tr>
+  <tr><td>执行期间节点失联</td><td>终止指令结果"未知"（无法确认送达/生效），显卡转"状态未知"，审计记录该不确定性；节点恢复后以进程是否仍在来复核并补记。</td></tr>
+  <tr><td>终止指令失败（权限不足等）</td><td>反馈失败原因；同一进程 1 分钟内最多允许重试 <mark>3 次</mark>，超出后建议管理员通过节点维护流程处理。</td></tr>
+  <tr><td>批量终止</td><td>首版不提供跨卡多选批杀（单卡内可多选）；跨节点批量属 P1 评估项——降低误操作半径为产品判断。</td></tr>
+</table>
+
+<!-- DEMO 2 -->
+<div class="demo">
+  <div class="demo-bar">
+    <span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span>
+    <span style="margin-left:8px">交互演示 D2 — 实时总览 / 进程下钻 / 终止流程（对应 FR-2 / FR-3 / FR-4，可直接操作）</span>
+  </div>
+  <div class="demo-body">
+    <div class="sumbar" id="d2-sum"></div>
+    <div id="d2-grid"></div>
+    <div id="d2-detail"></div>
+    <div class="audit-strip"><div class="ttl">AUDIT TRAIL（本演示产生的审计记录）</div><div id="d2-audit-lines"></div></div>
+  </div>
+  <div class="demo-cap"><b>演示要点</b>：占用卡含 conda / venv / 非 Python 异常进程三种环境徽章；故障卡与离线节点展示"不沿用旧数据"的未知态；终止流程完整复现"原因必填 + 输入 PID 确认 → 优雅终止倒计时 → 强杀兜底 → 显存回落 → 审计落账"（演示中宽限期缩短为 3 秒）。</div>
+</div>
+
+<!-- ---------- FR-5 ---------- -->
+<h3 id="fr5" class="anchor"><span class="frid">FR-5</span>审计日志 <span class="prio"><span class="badge b-p0">P0</span></span></h3>
+<p><strong>目的</strong>：原始需求未提及，但作为"管理员可终止任何人进程"这一高危能力的配套，属首版必备——<strong>没有审计的强制终止不应上线</strong>。</p>
+<table>
+  <tr><th style="width:170px">项</th><th>规则</th></tr>
+  <tr><td>记录范围</td><td>登录成功/失败、账号锁定；节点绑定/删除/强制下线/凭据变更/维护模式；<strong>每一次终止进程</strong>（含结果：优雅退出/强制终止/自行退出/未知）；显卡档案硬件变更确认；告警规则变更（P1）。</td></tr>
+  <tr><td>记录字段</td><td>时间（集群时区）、操作者、动作、目标对象（节点/GPU/PID/属主）、原因（终止类操作必填的原文）、结果、操作来源页面。</td></tr>
+  <tr><td>不可篡改</td><td>仅允许追加与导出（CSV），任何角色（含管理员）不可修改、删除单条或清空。</td></tr>
+  <tr><td>保留期</td><td>默认 <mark>1 年</mark>（可配置）；到期自动归档，归档文件同样只读。</td></tr>
+  <tr><td>查看</td><td>按时间倒序的时间线 + 按操作者 / 动作类型 / 目标节点 / 时间区间筛选。</td></tr>
+</table>
+
+<!-- ---------- FR-6 ---------- -->
+<h3 id="fr6" class="anchor"><span class="frid">FR-6</span>告警与通知 <span class="prio"><span class="badge b-p1">P1</span></span></h3>
+<p><strong>补充建议</strong>：原始需求的"实时显示"只解决"看"，未解决"没人盯屏时的异常感知"。P1 引入规则式告警。</p>
+<ul>
+  <li>内置规则：节点离线、显卡故障（ECC/掉卡）、温度 ≥ <mark>85°C</mark>、显存占用率 ≥ <mark>90%</mark> 持续 <mark>10 分钟</mark>、空闲卡出现"非 Python"异常进程（预研 FR-11）。</li>
+  <li>通知渠道 <mark>待定：邮件 / 飞书 / 钉钉 / 企业微信 Webhook，评审时勾选</mark>；同规则支持静默期与恢复通知。</li>
+  <li>告警中心：未读列表、认领（标记处理人）、关闭须填原因并写审计。</li>
+</ul>
+
+<!-- ---------- FR-7 ---------- -->
+<h3 id="fr7" class="anchor"><span class="frid">FR-7</span>历史统计与报表 <span class="prio"><span class="badge b-p1">P1</span></h3>
+<p><strong>补充建议</strong>：实验室管理常见诉求是"向导师/采购方证明卡没闲置"与"找出长期霸卡的人"，需要历史数据而非实时快照。</p>
+<ul>
+  <li>指标：逐卡利用率/显存趋势（时/日/周/月）、空闲率曲线、用户使用排行（卡·时）、环境维度统计（哪个 conda 环境最耗卡）。</li>
+  <li>数据保留：明细 <mark>90 天</mark> + 聚合指标 <mark>2 年</mark>（可配置）。</li>
+  <li>闲置识别：连续 <mark>7 天</mark> 空闲的卡单独列表（辅助资源再分配与采购决策）。</li>
+  <li>导出：CSV / 截图友好视图。</li>
+</ul>
+
+<!-- ---------- FR-8 ---------- -->
+<h3 id="fr8" class="anchor"><span class="frid">FR-8</span>硬件健康监控 <span class="prio"><span class="badge b-p1">P1</span></h3>
+<p><strong>补充建议</strong>：FR-2 已展示温度/功耗，P1 将其升级为健康管理：每卡温度/功耗/风扇（如可采集）趋势、ECC 错误计数、驱动版本台账（节点接入时采集，形成"哪台机器该升级驱动"的一览表）。</p>
+
+<!-- ---------- FR-9 ---------- -->
+<h3 id="fr9" class="anchor"><span class="frid">FR-9</span>普通用户自助视图 <span class="prio"><span class="badge b-p1">P1</span></h3>
+<p><strong>补充建议</strong>：管理员模式解决"管控"，但共享集群中用户也需要自助——看自己占用了哪些卡、自己终止自己的进程，减少找管理员扫码式的沟通成本。账号体系与权限矩阵见 4.1 目标态；<mark>是否对接实验室已有统一登录（LDAP/校园 SSO）待定</mark>。</p>
+
+<!-- ---------- FR-10 ---------- -->
+<h3 id="fr10" class="anchor"><span class="frid">FR-10</span>GPU 预约与配额 <span class="prio"><span class="badge b-p2">P2</span></h3>
+<p><strong>补充建议</strong>：纯监控只能"事后处置"，治理成熟后可用预约（时间片）与配额（每用户/组最大占卡数、最长单次占用时长，超时提醒）从源头减少霸卡。依赖 FR-9 的用户体系与 FR-7 的使用数据积累。</p>
+
+<!-- ---------- FR-11 ---------- -->
+<h3 id="fr11" class="anchor"><span class="frid">FR-11</span>异常进程检测 <span class="prio"><span class="badge b-p2">P2</span></h3>
+<p><strong>补充建议</strong>：高校 GPU 机器的典型风险——被植入挖矿/异常二进制（特征：非 Python、高显存、高利用率、属主模糊）。P2 提供"非 Python 进程占用 ≥ <mark>8GB</mark> 显存"的标记与告警（作为 FR-6 的规则类型之一先行试点），不做自动查杀。</p>
+
+<!-- ---------- FR-12 ---------- -->
+<h3 id="fr12" class="anchor"><span class="frid">FR-12</span>开放 API <span class="prio"><span class="badge b-p2">P2</span></h3>
+<p><strong>补充建议</strong>：只读 API（节点/显卡/进程快照、历史序列）供实验室主页、大屏或 CI 抑制器集成；写操作 API 默认不开放，开放须单独评审（高危）。</p>
+</section>
+
+<!-- ================= 6 共享规则 ================= -->
+<section id="s6" class="anchor">
+<h2>6 共享规则与数据口径（全系统唯一定义处）</h2>
+<p>以下规则被多个 FR 引用，任何模块不得另行定义。</p>
+
+<h3>6.1 显存口径</h3>
+<ul>
+  <li><strong>卡已用显存</strong> = 驱动上报的"已用显存总量"，包含驱动上下文与碎片开销，因此恒 ≥ Σ(进程显存)。</li>
+  <li><strong>进程显存</strong> = 驱动按进程统计的占用值；多个进程共享同一上下文的场景允许重复计入，以驱动值为准。</li>
+  <li><strong>其他/系统占用</strong> = 卡已用显存 − Σ(进程显存)，仅用于卡级勾稽展示，不参与任何告警阈值计算（避免负值/波动误报）。</li>
+  <li>单位统一 MB 展示（&lt;1GB 显示 MB，≥1GB 显示两位小数 GB）。</li>
+</ul>
+
+<h3>6.2 虚拟环境识别</h3>
+<p>唯一规则见 FR-3 表格；徽章文案（<code>conda:</code> / <code>venv:</code> / <code>system-python</code> / <code>非Python:</code> / <code>未知</code>）全系统统一，审计与告警复用同一解析结果。</p>
+
+<h3>6.3 实时性与心跳</h3>
+<ul>
+  <li>采集周期默认 <mark>5 秒</mark>；节点级心跳与指标同通道。连续 <mark>3</mark> 个周期无数据 → 节点"离线"，其卡全部转"状态未知"。</li>
+  <li>节点恢复上报后自动转"在线"，无需人工干预；一次离线事件记一条审计备注（不产生告警风暴，重复离线按 FR-6 静默期规则收敛）。</li>
+</ul>
+
+<h3>6.4 宽限期与重试</h3>
+<ul>
+  <li>终止宽限期 <mark>30 秒</mark>；同一进程终止重试 1 分钟内 ≤ <mark>3 次</mark>（FR-4.3）。</li>
+  <li>接入验证单步超时 <mark>15 秒</mark>（FR-1.5）。</li>
+</ul>
+
+<h3>6.5 高危操作确认规范</h3>
+<table>
+  <tr><th>操作</th><th>确认方式</th><th>原因</th><th>审计</th></tr>
+  <tr><td>终止单个进程</td><td>输入目标 PID</td><td>必填</td><td>必写（含结果）</td></tr>
+  <tr><td>删除节点（有活动进程）</td><td>勾选强制下线 + 输入节点 IP</td><td>必填</td><td>必写（含被终止进程清单）</td></tr>
+  <tr><td>删除节点（无活动进程/离线）</td><td>输入节点 IP</td><td>选填</td><td>必写</td></tr>
+  <tr><td>显卡硬件变更确认</td><td>弹窗确认</td><td>选填</td><td>必写</td></tr>
+</table>
+
+<h3>6.6 数据质量与降级</h3>
+<ul>
+  <li>任何采集项失败（显存读不到、进程列表不可读）：显示"不可读"占位，不使用 0 或旧值冒充。</li>
+  <li>勾稽异常（Σ进程 &gt; 卡已用）：面板标"数据异常"并记数据质量日志，不阻断其他卡展示。</li>
+  <li>时间统一为集群时区（Asia/Shanghai）。</li>
+</ul>
+</section>
+
+<!-- ================= 7 需求映射 ================= -->
+<section id="s7" class="anchor">
+<h2>7 需求映射与补充建议汇总</h2>
+<h3>7.1 原始需求 → 功能模块</h3>
+<table>
+  <tr><th>原始需求</th><th>对应模块</th><th>优先级</th></tr>
+  <tr><td>1. GPU 的 IP 一次性全部绑定；支持删除与新增</td><td>FR-1（绑定对象澄清为"节点"，显卡自动发现）</td><td><span class="badge b-p0">P0</span></td></tr>
+  <tr><td>2. 实时显示每张卡运行状态、已用显存、固有原始显存</td><td>FR-2（总显存随节点接入时固化登记）</td><td><span class="badge b-p0">P0</span></td></tr>
+  <tr><td>3. 每张卡的进程来自哪个 Python 虚拟环境、占多少显存</td><td>FR-3（conda / venv / system / 非Python / 未知 五态口径）</td><td><span class="badge b-p0">P0</span></td></tr>
+  <tr><td>4. 管理员与管理密码，最高权限，可终止任何显卡的运行</td><td>FR-4（认证 + 二次确认 + 宽限期两段式终止）</td><td><span class="badge b-p0">P0</span></td></tr>
+</table>
+<h3>7.2 遗漏功能补充建议（按优先级）</h3>
+<table>
+  <tr><th>补充能力</th><th>解决什么问题</th><th>优先级</th></tr>
+  <tr><td>审计日志（FR-5）</td><td>高危终止无留痕不可追责——治理底线</td><td><span class="badge b-p0">P0（随首版）</span></td></tr>
+  <tr><td>告警与通知（FR-6）</td><td>没人盯屏时节点掉线、卡过热、显存打满无人知晓</td><td><span class="badge b-p1">P1</span></td></tr>
+  <tr><td>统计报表（FR-7）</td><td>利用率证明、霸卡排行、闲置卡识别、采购依据</td><td><span class="badge b-p1">P1</span></td></tr>
+  <tr><td>硬件健康（FR-8）</td><td>温度/功耗/ECC/驱动版本台账，提前发现坏卡</td><td><span class="badge b-p1">P1</span></td></tr>
+  <tr><td>普通用户自助视图（FR-9）</td><td>用户自查自助释放，减少管理员沟通成本</td><td><span class="badge b-p1">P1</span></td></tr>
+  <tr><td>预约与配额（FR-10）</td><td>从"事后终止"走向"事前治理"</td><td><span class="badge b-p2">P2</span></td></tr>
+  <tr><td>异常进程检测（FR-11）</td><td>实验室 GPU 被植入挖矿/异常二进制的识别与告警</td><td><span class="badge b-p2">P2</span></td></tr>
+  <tr><td>开放 API（FR-12）</td><td>对接主页/大屏/CI 等外部系统</td><td><span class="badge b-p2">P2</span></td></tr>
+  <tr><td>凭据安全与轮换（FR-1.4）</td><td>节点访问凭据加密存储、不回显、可单独替换</td><td><span class="badge b-p0">随 FR-1</span></td></tr>
+</table>
+</section>
+
+<!-- ================= 8 开放问题 ================= -->
+<section id="s8" class="anchor">
+<h2>8 开放问题</h2>
+<div class="callout err">
+  <span class="co-t">Q1（最高优先级，影响整体形态）：OpenPAI 原有作业体系（作业提交/排队/Jupyter）保留还是剥离？</span>
+  本 PRD 基于"用户直接在机器上跑进程（conda/venv 直跑）"的场景假设编写。若实验室同时需要"平台代管作业"（进程运行在容器中），则：虚拟环境追踪的对象变为容器内环境，且终止容器化作业须与作业系统联动（避免平台自动重拉作业造成"杀不死"）。<strong>评审结论将决定改造范围的大小，建议首先拍板。</strong>
+</div>
+<div class="qitem"><span class="qq">Q2：集群规模与采集方式</span><br>节点数量级（<10 / 10–50 / 50+）与是否允许在节点侧安装常驻采集组件，直接影响"实时"承诺的实现路径与 FR-1 接入验证的耗时体验。PRD 层面仅需确认规模预期。</div>
+<div class="qitem"><span class="qq">Q3：普通用户能否看到全部卡的明细？</span><br>涉及实验室内部数据观感（谁在跑什么对全员可见）——组织文化问题，需评审定夺（影响 FR-9 权限默认值）。</div>
+<div class="qitem"><span class="qq">Q4：告警通知渠道</span><br>邮件 / 飞书 / 钉钉 / 企业微信，评审勾选（影响 FR-6 P1 落地范围）。</div>
+<div class="qitem"><span class="qq">Q5：管理员数量与职责</span><br>单人管理还是多名（学生助理）？是否区分"超级管理员/普通管理员"两级（本 PRD 暂定单一管理员层级）。</div>
+</section>
+
+<!-- ================= 9 术语表 ================= -->
+<section id="s9" class="anchor">
+<h2>9 术语表</h2>
+<table>
+  <tr><th style="width:160px">术语</th><th>定义</th></tr>
+  <tr><td>GPU 节点 / 节点</td><td>一台物理 GPU 机器，拥有独立 IP，是绑定、删除、心跳、凭据管理的对象。用户口中的"显卡 IP"即节点 IP。</td></tr>
+  <tr><td>显卡 / 卡</td><td>节点内一张独立 GPU，含型号、总显存（原始显存）、UUID。随节点接入自动发现，不单独绑定。</td></tr>
+  <tr><td>占用进程</td><td>在目标显卡上持有显存上下文的运行中进程，以"节点 + PID"唯一定位。</td></tr>
+  <tr><td>虚拟环境</td><td>Python 隔离运行环境（conda env / venv 等）。系统展示解析后的环境名徽章，而非让管理员读路径。</td></tr>
+  <tr><td>其他/系统占用</td><td>卡已用显存与各进程显存之和的差额，见 6.1。</td></tr>
+  <tr><td>优雅终止 / 强杀</td><td>两段式终止：先可捕获信号（允许进程保存现场），宽限期后不可捕获信号强制结束，见 FR-4.2。</td></tr>
+  <tr><td>状态未知</td><td>节点失联/维护时显卡的诚实展示态：不渲染任何过期数据。与"空闲"严格区分。</td></tr>
+</table>
+<p class="small">—— 文档结束。评审时请重点关注第 8 节开放问题，尤其是 Q1。</p>
+</section>
+
+</main>
+</div>
+</div>
+
+<script>
+/* ============================================================
+   Demo helpers (shared)
+============================================================ */
+function pill(txt, cls){ return '<span class="statuspill '+cls+'">'+txt+'</span>'; }
+function envPill(txt, cls){ return '<span class="envpill '+cls+'">'+txt+'</span>'; }
+function fmtMB(mb){ return mb>=1024 ? (mb/1024).toFixed(1)+' GB' : mb+' MB'; }
+function stamp(){ const d=new Date(); return d.toTimeString().slice(0,8); }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+
+/* ============================================================
+   D1 — Node management (FR-1)
+============================================================ */
+(function(){
+  const nodes = [
+    {name:'lab-a', ip:'192.168.1.10', port:22, group:'一楼机房', gpus:4, drv:'550.54', st:'online', hb:'3 秒前'},
+    {name:'lab-b', ip:'192.168.1.11', port:22, group:'一楼机房', gpus:4, drv:'550.54', st:'online', hb:'4 秒前'},
+  ];
+  const audit = [];
+  const nodesEl = document.getElementById('d1-nodes');
+  const emptyEl = document.getElementById('d1-empty');
+  const auditEl = document.getElementById('d1-audit-lines');
+  const stMap = {online:['在线','st-idle'], offline:['离线','st-errS'], joining:['接入验证中','st-busy'], maint:['维护中','st-unk']};
+
+  function logAudit(action, target, result){
+    audit.unshift({t:stamp(), a:action, g:target, r:result});
+    auditEl.innerHTML = audit.map(x =>
+      '<div class="audit-line">['+x.t+'] <b>'+esc(x.a)+'</b> → '+esc(x.g)+' · '+esc(x.r)+'</div>').join('');
+  }
+
+  function render(){
+    nodesEl.innerHTML = nodes.map((n,i) => {
+      const s = stMap[n.st];
+      return '<tr><td>'+esc(n.name)+'</td><td>'+n.ip+':'+n.port+'</td><td>'+esc(n.group)+'</td>'+
+        '<td>'+n.gpus+' 卡</td><td>'+esc(n.drv||'—')+'</td><td>'+esc(n.hb||'—')+'</td>'+
+        '<td>'+pill(s[0], s[1])+'</td>'+
+        '<td><button class="btn ghost" onclick="d1Maint('+i+')">维护</button>'+
+        '<button class="btn danger" onclick="d1Del('+i+')">删除</button></td></tr>';
+    }).join('');
+    emptyEl.style.display = nodes.length ? 'none' : 'block';
+    document.getElementById('d1-node-table').style.display = nodes.length ? '' : 'none';
+  }
+  window.d1Maint = function(i){
+    const n = nodes[i];
+    if(n.st==='maint'){ n.st='online'; n.hb='2 秒前'; logAudit('退出维护模式', n.ip, '节点恢复在线'); }
+    else { n.st='maint'; n.hb='—'; logAudit('进入维护模式', n.ip, '维护期间不参与统计'); }
+    render();
+  };
+  window.d1Del = function(i){
+    const n = nodes[i];
+    const busy = (n.ip==='192.168.1.11'); // demo: lab-b has active process
+    openModal(
+      '<h5>删除节点 '+esc(n.name)+'（'+n.ip+'）</h5>'+
+      (busy
+        ? '<div class="kv" style="color:#ff9e8f">该节点有 1 个活动占用进程：</div>'+
+          '<div class="kv">PID <b>9102</b> · 属主 <b>wang</b> · GPU0 占用 <b>21.0 GB</b></div>'+
+          '<div class="kv" style="margin:8px 0">默认阻止删除。勾选下方选项将按两段式终止规则清理进程并删除节点，全部写入审计。</div>'+
+          '<label style="display:flex;gap:8px;align-items:center;margin:8px 0"><input type="checkbox" id="d1force"> 强制终止该节点全部进程并删除</label>'
+        : '<div class="kv">该节点无活动占用进程，可直接删除。此操作不可撤销。</div>')+
+      '<div class="kv" style="margin-top:8px">原因'+(busy?'（必填）':'（选填）')+'，写入审计：</div>'+
+      '<textarea id="d1delreason" rows="2" placeholder="例如：机器退役，归还机房"></textarea>'+
+      '<div class="kv" style="margin-top:8px">请输入节点 IP <b>'+n.ip+'</b> 以确认：</div>'+
+      '<input type="text" id="d1cip" placeholder="'+n.ip+'" autocomplete="off">'+
+      '<div style="margin-top:12px;text-align:right">'+
+      '<button class="btn ghost" onclick="closeModal()">取消</button>'+
+      '<button class="btn danger" id="d1delgo" disabled>确认删除</button></div>'
+    );
+    const chk = document.getElementById('d1force');
+    const input = document.getElementById('d1cip');
+    const rEl = document.getElementById('d1delreason');
+    const go = document.getElementById('d1delgo');
+    function upd(){
+      let ok = input.value.trim()===n.ip;
+      if(busy) ok = ok && chk.checked && rEl.value.trim().length>0;
+      go.disabled = !ok;
+    }
+    if(chk) chk.onchange = upd;
+    input.oninput = upd; rEl.oninput = upd;
+    go.onclick = function(){
+      const reason = rEl.value.trim() || '未填写';
+      nodes.splice(i,1);
+      logAudit((busy?'强制下线并删除节点':'删除节点')+'（原因：'+reason+'）', n.ip, busy?'终止 1 个进程后删除':'无活动进程，直接删除');
+      if(busy) logAudit('终止进程 (强制下线)', n.ip+' GPU0 PID 9102 属主 wang', '结果：未知（节点已删除）');
+      closeModal(); render();
+    };
+  };
+
+  document.getElementById('d1-add-one').onclick = function(){ openBind(true); };
+  document.getElementById('d1-open-bind').onclick = function(){ openBind(false); };
+
+  function openBind(single){
+    openModal(
+      '<h5>'+(single?'新增单个节点':'批量绑定节点')+'</h5>'+
+      '<div class="kv">每行一个 <b>IP</b> 或 <b>IP:端口</b>。整批共用一套节点凭据（演示已省略凭据输入，实际产品中凭据加密存储、永不回显）。</div>'+
+      '<textarea id="d1ta" rows="6" style="margin-top:8px">192.168.1.20\n192.168.1.21:22\n192.168.1.10\n192.168.1.999\n192.168.1.99</textarea>'+
+      '<div style="margin-top:10px"><button class="btn" id="d1parse">解析并校验</button></div>'+
+      '<div id="d1res"></div>'+
+      '<div id="d1run" style="margin-top:10px"></div>'
+    );
+    const ta = document.getElementById('d1ta');
+    const res = document.getElementById('d1res');
+    const run = document.getElementById('d1run');
+    let lines = [];
+    document.getElementById('d1parse').onclick = function(){
+      lines = ta.value.split('\n').map(s=>s.trim()).filter(Boolean);
+      res.innerHTML = '<table style="margin-top:8px"><tr><th>行内容</th><th>校验结果</th></tr>'+
+        lines.map(l=>{
+          let tag, cls;
+          const m = l.match(/^(\d{1,3}(?:\.\d{1,3}){3})(?::(\d{1,5}))?$/);
+          if(!m){ tag='格式错误'; cls='st-errS'; }
+          else if(nodes.some(n=>n.ip===m[1])){ tag='已存在，跳过'; cls='st-unk'; }
+          else { tag='有效'; cls='st-idle'; }
+          return '<tr><td style="font-family:var(--mono)">'+esc(l)+'</td><td>'+pill(tag,cls)+'</td></tr>';
+        }).join('')+'</table>'+
+        '<div style="margin-top:10px;text-align:right"><button class="btn" id="d1go">开始接入（仅有效行）</button></div>';
+      document.getElementById('d1go').onclick = startJoin;
+    };
+    function startJoin(){
+      const valid = lines.filter(l=>{
+        const m = l.match(/^(\d{1,3}(?:\.\d{1,3}){3})(?::(\d{1,5}))?$/);
+        return m && !nodes.some(n=>n.ip===m[1]);
+      });
+      if(!valid.length){ run.innerHTML='<span style="color:#ff9e8f">没有可接入的有效行</span>'; return; }
+      const rows = valid.map(l=>({ip:l.split(':')[0], done:false, ok:false}));
+      function paint(){
+        run.innerHTML = '<table><tr><th>IP</th><th>接入进度</th></tr>'+rows.map(r=>{
+          let cell;
+          if(!r.step) cell = pill('排队中','st-unk');
+          else if(r.step<4) cell = pill('第'+r.step+'/4步：'+['网络可达','登录验证','GPU 清单采集','显卡资产登记'][r.step-1]+'…','st-busy');
+          else if(r.ok) cell = pill('成功：在线，登记 4 张显卡','st-idle');
+          else cell = pill('失败：'+r.fail,'st-errS');
+          return '<tr><td style="font-family:var(--mono)">'+r.ip+'</td><td>'+cell+'</td></tr>';
+        }).join('')+'</table>';
+      }
+      paint();
+      rows.forEach((r,ri)=>{
+        let step = 0;
+        const iv = setInterval(()=>{
+          step++;
+          r.step = step;
+          paint();
+          if(step===4){
+            clearInterval(iv);
+            r.ok = (r.ip!=='192.168.1.99'); // demo: one unreachable node
+            r.fail = r.ok? '' : '网络不可达（15 秒超时）';
+            if(r.ok){
+              nodes.push({name:'node-'+r.ip.split('.')[3], ip:r.ip, port:22, group:'未分组',
+                          gpus:4, drv:'550.54', st:'online', hb:'2 秒前'});
+              logAudit('批量绑定节点', r.ip, '接入成功，自动发现 4 张显卡');
+              render();
+            } else {
+              logAudit('批量绑定节点', r.ip, '接入失败：网络不可达');
+            }
+            paint();
+          }
+        }, 500 + ri*180);
+      });
+    }
+  }
+  render();
+})();
+
+/* ============================================================
+   D2 — GPU overview + process drilldown + kill flow
+============================================================ */
+(function(){
+  const offline = {name:'lab-c', ip:'192.168.1.30', gpus:4, hb:'心跳超时 41 秒'};
+  const cards = [
+    {node:'lab-a', idx:0, model:'RTX 3090', total:24576, used:22300, util:97, temp:71, st:'busy',
+      procs:[
+        {pid:8412, user:'zhang', exe:'python', cmd:'train_llm.py --steps 120000', env:'conda:llm-ft', ec:'env-conda', mem:18600, dur:'3 天 4 时'},
+        {pid:8455, user:'zhang', exe:'python', cmd:'evaluate.py --split test', env:'venv:rag-eval', ec:'env-venv', mem:2100, dur:'6 时 12 分'}
+      ]},
+    {node:'lab-a', idx:1, model:'RTX 3090', total:24576, used:4300, util:35, temp:52, st:'busy',
+      procs:[{pid:9014, user:'li', exe:'python', cmd:'data_prep.py --shard 3/8', env:'conda:data-etl', ec:'env-conda', mem:3900, dur:'1 时 45 分'}]},
+    {node:'lab-a', idx:2, model:'RTX 3090', total:24576, used:12, util:0, temp:38, st:'idle', procs:[]},
+    {node:'lab-a', idx:3, model:'RTX 3090', total:24576, used:720, util:0, temp:39, st:'idle', procs:[], leaky:true},
+    {node:'lab-b', idx:0, model:'A100 80G', total:81920, used:21000, util:95, temp:66, st:'busy',
+      procs:[{pid:9102, user:'wang', exe:'srv_4096.bin', cmd:'./srv_4096.bin -c conf', env:'非Python:srv_4096.bin', ec:'env-x', mem:21000, dur:'9 时 3 分'}]},
+    {node:'lab-b', idx:1, model:'A100 80G', total:81920, used:0, util:0, temp:0, st:'err', procs:[], errTxt:'ECC 不可纠正错误'},
+    {node:'lab-b', idx:2, model:'A100 80G', total:81920, used:230, util:0, temp:41, st:'idle', procs:[]},
+    {node:'lab-b', idx:3, model:'A100 80G', total:81920, used:19600, util:88, temp:63, st:'busy',
+      procs:[{pid:9311, user:'zhao', exe:'python', cmd:'sample.py --cfg xl', env:'venv:diffusion', ec:'env-venv', mem:19600, dur:'2 时 30 分'}]}
+  ];
+  let selected = null;
+  const audit = [];
+  const gridEl = document.getElementById('d2-grid');
+  const detEl = document.getElementById('d2-detail');
+  const auditEl = document.getElementById('d2-audit-lines');
+  const stTxt = {busy:['占用中','st-busy'], idle:['空闲','st-idle'], err:['故障','st-errS']};
+
+  function logAudit(a, g, r){
+    audit.unshift({t:stamp(), a, g, r});
+    auditEl.innerHTML = audit.map(x=>'<div class="audit-line">['+x.t+'] <b>'+esc(x.a)+'</b> → '+esc(x.g)+' · 原因：'+esc(x.r)+'</div>').join('');
+  }
+
+  function render(){
+    const n = cards.length;
+    const cnt = s => cards.filter(c=>c.st===s).length;
+    document.getElementById('d2-sum').innerHTML =
+      '<span class="chip">总卡数 <b>'+n+'</b></span>'+
+      '<span class="chip">空闲 <b style="color:#3ddc97">'+cnt('idle')+'</b></span>'+
+      '<span class="chip">占用中 <b style="color:#ffce54">'+cnt('busy')+'</b></span>'+
+      '<span class="chip">故障 <b style="color:#ff7a68">'+cnt('err')+'</b></span>'+
+      '<span class="chip">未知 <b style="color:#7b8aa5">'+offline.gpus+'</b></span>'+
+      '<span class="chip">总显存 <b>'+fmtMB(cards.reduce((s,c)=>s+c.total,0))+'</b> · 已用 <b>'+fmtMB(cards.reduce((s,c)=>s+c.used,0))+'</b></span>'+
+      '<span class="chip" style="color:#8fa0bd">刷新周期 5s（演示暂停自动刷新）</span>';
+
+    let html = '<div class="gpu-grid">';
+    let lastNode = null;
+    cards.forEach(c=>{
+      if(c.node!==lastNode){
+        lastNode = c.node;
+        html += '<div class="goff" style="grid-column:1/-1;border-style:solid;padding:4px 12px;margin-top:6px">'+c.node+' · 192.168.1.'+(c.node==='lab-a'?'10':'11')+' · 在线</div>';
+      }
+      const s = stTxt[c.st];
+      const pct = Math.min(100, Math.round(c.used/c.total*100));
+      const barColor = c.st==='err' ? '#ff7a68' : pct>85 ? '#ff9e5e' : '#5db8ff';
+      html += '<div class="gpu-card'+(c.st==='idle'?'':' clickable')+(selected===c?' sel':'')+'" data-k="'+c.node+'-'+c.idx+'">'+
+        '<div class="gname"><span>'+c.node+' GPU'+c.idx+'</span>'+pill(s[0], s[1])+'</div>'+
+        '<div class="gmem">'+c.model+' · '+fmtMB(c.total)+'</div>'+
+        '<div class="bar"><i style="width:'+pct+'%;background:'+barColor+'"></i></div>'+
+        '<div class="gmeta"><span>'+fmtMB(c.used)+' 已用</span><span>util '+c.util+'%</span></div>'+
+        '<div class="gmeta"><span>'+(c.st==='err'?esc(c.errTxt):'temp '+c.temp+'°C')+'</span><span>'+c.procs.length+' 进程</span></div>'+
+        (c.leaky?'<div style="font-size:10.5px;color:#ffce54;margin-top:4px">疑似显存泄漏（无进程但占用 '+fmtMB(c.used)+'）</div>':'')+
+        '</div>';
+    });
+    html += '<div class="goff">'+offline.name+' · '+offline.ip+' · '+pill('离线','st-errS')+' '+offline.hb+' — '+offline.gpus+' 张卡状态未知，不展示旧数据</div>';
+    html += '</div>';
+    gridEl.innerHTML = html;
+    gridEl.querySelectorAll('.gpu-card').forEach(el=>{
+      el.onclick = ()=>{ select(el.dataset.k); };
+    });
+    if(selected) renderDetail(); else detEl.innerHTML='';
+  }
+
+  function findCard(k){ return cards.find(c=>c.node+'-'+c.idx===k); }
+
+  function select(k){
+    const c = findCard(k);
+    if(!c || c.st==='err'){ selected=null; render(); return; }
+    selected = k; render();
+  }
+
+  function renderDetail(){
+    const c = findCard(selected);
+    if(!c){ detEl.innerHTML=''; return; }
+    const others = c.used - c.procs.reduce((s,p)=>s+p.mem,0);
+    let html = '<div style="border-top:1px solid #27334a;margin-top:12px;padding-top:12px">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'+
+      '<b>'+c.node+' GPU'+c.idx+' 占用明细</b><span style="color:#7d8db0;font-size:12px">已用 '+fmtMB(c.used)+' / 总 '+fmtMB(c.total)+'</span></div>';
+    if(!c.procs.length){
+      html += '<div class="goff" style="border-style:solid">该卡当前无占用进程。'+(c.leaky?'显存占用 '+fmtMB(c.used)+' 高于空闲阈值（500MB），疑似残留上下文泄漏，建议管理员关注。':'')+'</div>';
+    } else {
+      html += '<table><tr><th>PID</th><th>属主</th><th>虚拟环境</th><th>显存</th><th>运行时长</th><th>命令行摘要</th><th>操作</th></tr>'+
+        c.procs.map(p=>
+          '<tr><td style="font-family:var(--mono)">'+p.pid+'</td><td>'+esc(p.user)+'</td>'+
+          '<td>'+envPill(p.env, p.ec)+'</td>'+
+          '<td style="font-family:var(--mono)">'+fmtMB(p.mem)+'</td>'+
+          '<td>'+p.dur+'</td>'+
+          '<td style="font-family:var(--mono);font-size:11.5px">'+esc(p.cmd)+'</td>'+
+          '<td><button class="btn danger" onclick="d2Kill(\''+c.node+'\','+c.idx+','+p.pid+')">终止</button></td></tr>'
+        ).join('')+
+        '<tr><td colspan="3" style="color:#7d8db0">其他 / 系统占用</td><td style="font-family:var(--mono);color:#9fb0c8">'+fmtMB(Math.max(0,others))+'</td><td colspan="3" style="color:#55627e;font-size:11.5px">驱动上下文与碎片开销 = 卡已用 − Σ进程</td></tr>'+
+        '</table>';
+    }
+    html += '</div>';
+    detEl.innerHTML = html;
+  }
+
+  window.d2Kill = function(node, idx, pid){
+    const c = findCard(node+'-'+idx);
+    const p = c.procs.find(x=>x.pid===pid);
+    if(!p) return;
+    openModal(
+      '<h5>终止进程确认（管理员最高权限）</h5>'+
+      '<div class="kv">节点/GPU：<b>'+c.node+' · GPU'+idx+'</b>（'+c.model+'）</div>'+
+      '<div class="kv">PID：<b>'+p.pid+'</b>　属主：<b>'+esc(p.user)+'</b>　环境：'+envPill(p.env,p.ec)+'</div>'+
+      '<div class="kv">占用显存：<b>'+fmtMB(p.mem)+'</b>　已运行：<b>'+p.dur+'</b></div>'+
+      '<div class="kv" style="font-family:var(--mono);font-size:11.5px">'+esc(p.exe+' '+p.cmd)+'</div>'+
+      '<div style="color:#ff9e8f;font-size:12px;margin:8px 0">警告：终止他人的训练进程可能造成不可恢复的现场丢失。系统将先优雅终止，宽限期 30 秒后强制终止（演示缩短为 3 秒）。</div>'+
+      '<div class="kv">原因（必填，写入审计）：</div>'+
+      '<textarea id="kreason" rows="2" placeholder="例如：超时未释放，已邮件通知属主"></textarea>'+
+      '<div class="kv" style="margin-top:8px">请输入目标 PID <b>'+p.pid+'</b> 以确认：</div>'+
+      '<input type="text" id="kpid" autocomplete="off" placeholder="'+p.pid+'">'+
+      '<div style="margin-top:12px;text-align:right">'+
+      '<button class="btn ghost" onclick="closeModal()">取消</button>'+
+      '<button class="btn danger" id="kgo" disabled>发送终止指令</button></div>'
+    );
+    const go = document.getElementById('kgo');
+    const rEl = document.getElementById('kreason');
+    const pEl = document.getElementById('kpid');
+    function upd(){ go.disabled = !(pEl.value.trim()===String(p.pid) && rEl.value.trim().length>0); }
+    rEl.oninput = upd; pEl.oninput = upd;
+    go.onclick = function(){
+      const reason = rEl.value.trim();
+      const body = document.querySelector('.modal');
+      let left = 3;
+      body.innerHTML = '<h5>终止执行中</h5>'+
+        '<div class="kv">目标：'+envPill(p.env,p.ec)+' PID <b>'+p.pid+'</b>（属主 '+esc(p.user)+'，'+fmtMB(p.mem)+'）</div>'+
+        '<div class="kv">已发送优雅终止信号，宽限期倒计时：<b id="kcd" style="font-size:20px;color:#ffce54">3</b> 秒</div>'+
+        '<div class="hint">等待进程保存现场并退出；届满未退出将自动升级为强制终止</div>';
+      const iv = setInterval(()=>{
+        left--;
+        const cd = document.getElementById('kcd');
+        if(cd) cd.textContent = left;
+        if(left<=0){
+          clearInterval(iv);
+          p.dead = 'grace';
+          c.procs = c.procs.filter(x=>x.pid!==p.pid);
+          c.used = Math.max(0, c.used - p.mem);
+          if(!c.procs.length && c.used<=500) c.st='idle';
+          logAudit('终止进程', c.node+' GPU'+idx+' PID '+p.pid+'（属主 '+p.user+'，环境 '+p.env+'）', reason);
+          body.innerHTML = '<h5 style="color:#3ddc97">已终止</h5>'+
+            '<div class="kv">PID <b>'+p.pid+'</b> 已退出（宽限期内响应优雅终止信号）</div>'+
+            '<div class="kv">显存回收 '+fmtMB(p.mem)+'，下一采集周期更新汇总</div>'+
+            '<div style="margin-top:12px;text-align:right"><button class="btn" onclick="closeModal()">完成</button></div>';
+          render();
+        }
+      }, 1000);
+    };
+  };
+
+  render();
+})();
+
+/* ============================================================
+   shared modal
+============================================================ */
+function openModal(html){
+  closeModal();
+  const m = document.createElement('div');
+  m.className = 'modal-mask';
+  m.innerHTML = '<div class="modal">'+html+'</div>';
+  m.onclick = e => { if(e.target===m) closeModal(); };
+  document.body.appendChild(m);
+}
+function closeModal(){
+  document.querySelectorAll('.modal-mask').forEach(x=>x.remove());
+}
+</script>
+</body>
+</html>
