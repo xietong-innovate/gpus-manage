@@ -35,10 +35,6 @@ npm start
 #    http://localhost:9286
 ```
 
-**初始管理员账号**：用户名 `adminxt`，密码 `XieTong0504@`
-
-> 安全提醒：首次登录后请立即在右上角「改账号」中修改用户名和密码。修改需复核旧密码，成功后旧用户名与旧密码立即作废，所有已登录会话全部失效。
-
 ## 使用指南
 
 ### 1. 绑定 GPU 节点
@@ -92,8 +88,8 @@ npm start
 | `LOGIN_MAX_FAILS` | `5` | 连续登录失败锁定阈值 |
 | `LOCK_MINUTES` | `15` | 登录锁定时长（分钟） |
 | `KILL_RETRY_PER_MIN` | `3` | 同一进程 1 分钟内重试上限 |
-| `INITIAL_ADMIN_USERNAME` | `adminxt` | 首次启动预置管理员用户名 |
-| `INITIAL_ADMIN_PASSWORD` | `XieTong0504@` | 首次启动预置管理员密码（≥10 位，含字母与数字） |
+| `INITIAL_ADMIN_USERNAME` | 内置默认 | 首次启动预置管理员用户名（默认值见 `server/config.js`，建议启动前自行设置） |
+| `INITIAL_ADMIN_PASSWORD` | 内置默认 | 首次启动预置管理员密码（≥10 位，含字母与数字，默认值见 `server/config.js`，建议启动前自行设置） |
 | `DATA_DIR` | `./data` | 数据目录（节点档案/审计/会话，自动生成） |
 
 示例：`KILL_GRACE_SEC=8 PORT=9000 node server/index.js`
