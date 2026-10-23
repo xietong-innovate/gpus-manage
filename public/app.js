@@ -265,7 +265,7 @@ function gpuCard(g, n) {
   const sel = S.selected && S.selected.ip === g.ip && S.selected.index === g.index;
   const errTxt = g.status === 'err' ? `（ECC 错误 ${esc(g.eccErr ?? '')}）` : '';
   return `<div class="gpu-card ${clickable ? '' : 'dis'} ${sel ? 'sel' : ''}" ${clickable ? `onclick="selGpu('${g.ip}',${g.index})"` : ''}>
-    <div class="gname"><span>${esc(n.name)} GPU${g.index}</span><span class="pill ${cls}">${txt}</span></div>
+    <div class="gname"><span>${esc(n.name)} GPU${g.index}<span class="mini" style="font-weight:400;margin-left:6px">IP ${esc(g.ip)}</span></span><span class="pill ${cls}">${txt}</span></div>
     <div class="gmem">${esc(g.model)} · 总显存 ${fmtMB(g.totalMemMB)}</div>
     <div class="bar"><i style="width:${pct}%;background:${barColor}"></i></div>
     <div class="gmeta"><span>已用 ${fmtMB(g.usedMemMB)} / ${pct}%</span><span>util ${g.util ?? '—'}%</span></div>
@@ -302,7 +302,7 @@ function gpuDetail(g) {
     : '';
   return `<div class="detail" id="gpu-detail">
     <div class="dhead">
-      <b>${esc(n.name)} GPU${g.index} 占用明细</b>
+      <b>${esc(n.name)} GPU${g.index} 占用明细 <span class="mini" style="font-weight:400">IP ${esc(g.ip)}</span></b>
       <span class="mini">已用 ${fmtMB(g.usedMemMB)} / 总 ${fmtMB(g.totalMemMB)} · ${esc(g.model)} · 状态：${ST_TXT[g.status][0]}</span>
       <button class="btn ghost sm" onclick="S.selected=null;renderDashboard()">关闭</button>
     </div>
@@ -549,18 +549,20 @@ async function renderAudit() {
   const q = c.dataset.q || '';
   let entries = [];
   try { entries = (await api(`/api/audit?action=${encodeURIComponent(action)}&actor=${encodeURIComponent(actor)}&q=${encodeURIComponent(q)}`)).entries; } catch {}
-  const actNames = ['', 'login_ok', 'login_fail', 'login_locked', 'kill_graceful', 'kill_forced', 'kill_unknown', 'kill_target_gone', 'node_bind_ok', 'node_bind_fail', 'node_delete', 'node_force_delete', 'node_offline', 'node_hwchange', 'gpu_reregister'];
+  const actNames = ['', 'login_ok', 'login_fail', 'login_locked', 'kill_graceful', 'kill_forced', 'kill_unknown', 'kill_target_gone', 'node_bind_ok', 'node_bind_fail', 'node_delete', 'node_force_delete', 'node_offline', 'node_hwchange', 'gpu_reregister', 'audit_delete', 'audit_clear'];
   c.innerHTML = `
-    <h2 class="page">审计日志 <span class="mini">只增不改不删 · 默认保留 1 年</span></h2>
+    <h2 class="page">审计日志 <span class="mini">支持勾选删除与一键清空（不可恢复）· 删除/清空操作本身会记入一条新审计留痕</span></h2>
     <div class="filters">
       <label>动作</label><select id="f-action">${actNames.map((a) => `<option value="${a}" ${a === action ? 'selected' : ''}>${a || '全部'}</option>`).join('')}</select>
       <label>操作者</label><input id="f-actor" placeholder="如 admin" value="${esc(actor)}" style="min-width:110px">
       <label>目标</label><input id="f-q" placeholder="IP / PID 关键词" value="${esc(q)}" style="min-width:140px">
       <button class="btn sm" onclick="filterAudit()">筛选</button>
+      <button class="btn danger sm" id="aud-del" disabled onclick="auditDelSel()">删除所选</button>
+      <button class="btn danger sm" onclick="auditClearAll()">清空全部</button>
     </div>
     <div class="count">${entries.length} 条（最近 200 条）</div>
-    ${entries.length ? `<table><tr><th>时间</th><th>操作者</th><th>动作</th><th>目标</th><th>原因</th><th>结果</th></tr>
-      ${entries.map((e) => `<tr><td class="mini">${fmtTime(e.ts)}</td><td>${esc(e.actor)}</td><td><code>${esc(e.action)}</code></td><td style="font-family:var(--mono);font-size:11.8px">${esc(e.target)}</td><td>${esc(e.reason || '—')}</td><td>${esc(e.result)}</td></tr>`).join('')}</table>`
+    ${entries.length ? `<table><tr><th style="width:26px"><input type="checkbox" id="ck-all" style="width:auto" onchange="auditToggleAll(this.checked)"></th><th>时间</th><th>操作者</th><th>动作</th><th>目标</th><th>原因</th><th>结果</th></tr>
+      ${entries.map((e) => `<tr><td><input type="checkbox" class="ck-row" data-line="${e.line}" style="width:auto" onclick="auditUpdBtns()"></td><td class="mini">${fmtTime(e.ts)}</td><td>${esc(e.actor)}</td><td><code>${esc(e.action)}</code></td><td style="font-family:var(--mono);font-size:11.8px">${esc(e.target)}</td><td>${esc(e.reason || '—')}</td><td>${esc(e.result)}</td></tr>`).join('')}</table>`
       : '<div class="hint">暂无符合条件的审计记录</div>'}`;
   $('#f-actor').onkeydown = (e) => { if (e.key === 'Enter') filterAudit(); };
   $('#f-q').onkeydown = (e) => { if (e.key === 'Enter') filterAudit(); };
@@ -571,6 +573,44 @@ window.filterAudit = () => {
   c.dataset.actor = $('#f-actor').value.trim();
   c.dataset.q = $('#f-q').value.trim();
   renderAudit();
+};
+
+// 审计删除/清空（管理员功能）：line 为审计文件物理行号，由 /api/audit 查询返回
+window.auditToggleAll = (ck) => { document.querySelectorAll('.ck-row').forEach((x) => { x.checked = ck; }); auditUpdBtns(); };
+window.auditUpdBtns = () => {
+  const n = document.querySelectorAll('.ck-row:checked').length;
+  const b = $('#aud-del');
+  if (b) { b.disabled = n === 0; b.textContent = n ? `删除所选（${n}）` : '删除所选'; }
+};
+window.auditDelSel = () => {
+  const lines = [...document.querySelectorAll('.ck-row:checked')].map((x) => Number(x.dataset.line));
+  if (!lines.length) return;
+  window._auditDelLines = lines;
+  openModal(`<h3>删除所选审计记录</h3>
+    <div class="kv">即将删除 <b>${lines.length}</b> 条审计记录，此操作不可恢复。</div>
+    <div class="warnbox">删除操作本身会记入一条新审计（动作 audit_delete），用于保留管理痕迹。</div>
+    <div class="actions"><button class="btn ghost" onclick="closeModal()">取消</button>
+    <button class="btn danger" onclick="doAuditDel()">确认删除</button></div>`);
+};
+window.doAuditDel = async () => {
+  try {
+    const r = await api('/api/audit/delete', { method: 'POST', body: { lines: window._auditDelLines } });
+    closeModal(); toast(r.message || '已删除', 'ok'); renderAudit();
+  } catch (e) { toast(e.message, 'err'); }
+};
+window.auditClearAll = () => {
+  openModal(`<h3>清空全部审计日志</h3>
+    <div class="errbox">将删除全部审计记录，此操作不可恢复。清空后系统会保留一条「audit_clear」记录（谁在何时清空）。</div>
+    <div class="row"><label>请输入 <b>清空</b> 以确认</label><input id="ac-confirm" autocomplete="off" placeholder="清空"></div>
+    <div class="actions"><button class="btn ghost" onclick="closeModal()">取消</button>
+    <button class="btn danger" id="ac-go" disabled onclick="doAuditClear()">确认清空</button></div>`);
+  $('#ac-confirm').oninput = () => { $('#ac-go').disabled = $('#ac-confirm').value.trim() !== '清空'; };
+};
+window.doAuditClear = async () => {
+  try {
+    const r = await api('/api/audit/clear', { method: 'POST' });
+    closeModal(); toast(r.message || '已清空', 'ok'); renderAudit();
+  } catch (e) { toast(e.message, 'err'); }
 };
 
 boot();

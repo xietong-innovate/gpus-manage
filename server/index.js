@@ -60,10 +60,28 @@ app.get('/api/kill-tasks', (req, res) => {
   res.json({ tasks: listActiveTasks() });
 });
 
-// 审计查询（FR-5）
+// 审计查询（FR-5）；每条附带物理行号 line，供勾选删除定位
 app.get('/api/audit', (req, res) => {
   const { action, actor, q, from, to, limit } = req.query;
   res.json({ entries: store.queryAudit({ action, actor, q, from, to, limit: Number(limit) || 200 }) });
+});
+
+// 审计删除（管理员功能）：按行号删除所选；删除动作本身写入一条审计留痕
+app.post('/api/audit/delete', (req, res) => {
+  const lines = Array.isArray((req.body || {}).lines) ? req.body.lines : [];
+  const set = new Set(lines.filter((n) => Number.isInteger(n) && n > 0));
+  if (!set.size) return res.status(400).json({ error: '未指定要删除的审计条目' });
+  const deleted = store.deleteAuditLines(set);
+  if (!deleted) return res.status(404).json({ error: '所选条目已不存在（可能刚被删除）' });
+  store.appendAudit({ actor: req.user.username, action: 'audit_delete', target: 'audit', result: `删除 ${deleted} 条审计记录` });
+  res.json({ deleted, message: `已删除 ${deleted} 条；本次删除操作已记入审计` });
+});
+
+// 审计清空（管理员功能）：全部删除；清空动作本身写入一条审计留痕
+app.post('/api/audit/clear', (req, res) => {
+  const removed = store.clearAudit();
+  store.appendAudit({ actor: req.user.username, action: 'audit_clear', target: 'audit', result: `清空全部审计（原 ${removed} 条）` });
+  res.json({ removed, message: `已清空原 ${removed} 条；清空操作已记入审计` });
 });
 
 // 虚拟环境识别自检接口（联调用）

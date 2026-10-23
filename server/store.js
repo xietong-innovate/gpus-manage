@@ -1,4 +1,5 @@
-// 持久化：admin/nodes 为 JSON 文件（原子写），审计为 JSONL 追加（只增不改不删，PRD FR-5）
+// 持久化：admin/nodes 为 JSON 文件（原子写），审计为 JSONL 追加；
+// 支持管理员按行号删除/清空审计（删除操作本身会追加一条审计留痕）
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from './config.js';
@@ -63,17 +64,20 @@ export const store = {
     fs.appendFileSync(auditFile, line + '\n');
   },
   queryAudit({ action, actor, q, from, to, limit = 200 } = {}) {
-    let lines;
+    let raw;
     try {
-      lines = fs.readFileSync(auditFile, 'utf8').split('\n').filter(Boolean);
+      raw = fs.readFileSync(auditFile, 'utf8');
     } catch {
       return [];
     }
     const out = [];
-    for (const line of lines) {
+    const lines = raw.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const text = lines[i];
+      if (!text) continue;
       let e;
       try {
-        e = JSON.parse(line);
+        e = JSON.parse(text);
       } catch {
         continue;
       }
@@ -82,8 +86,41 @@ export const store = {
       if (q && !String(e.target || '').includes(q)) continue;
       if (from && e.ts < from) continue;
       if (to && e.ts > to) continue;
+      e.line = i + 1; // 物理行号（1-based），删除接口按此定位
       out.push(e);
     }
     return out.reverse().slice(0, Math.min(limit, 1000));
+  },
+  // 按物理行号删除审计条目：读全文 → 跳过所选行 → 原子重写；返回实际删除条数。
+  // 与 appendAudit 均为同步 fs 操作，Node 单线程下不会交错；追加只会发生在文件尾部，已查询行号不受影响
+  deleteAuditLines(lineSet) {
+    let raw;
+    try {
+      raw = fs.readFileSync(auditFile, 'utf8');
+    } catch {
+      return 0;
+    }
+    const lines = raw.split('\n');
+    let deleted = 0;
+    const kept = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i] && lineSet.has(i + 1)) { deleted++; continue; }
+      kept.push(lines[i]);
+    }
+    const tmp = auditFile + '.tmp';
+    fs.writeFileSync(tmp, kept.join('\n'));
+    if (fs.existsSync(auditFile)) fs.rmSync(auditFile, { force: true });
+    fs.renameSync(tmp, auditFile);
+    return deleted;
+  },
+  // 清空全部审计（保留文件本身），返回清空前条数
+  clearAudit() {
+    let raw = '';
+    try {
+      raw = fs.readFileSync(auditFile, 'utf8');
+    } catch {}
+    const removed = raw.split('\n').filter(Boolean).length;
+    fs.writeFileSync(auditFile, '');
+    return removed;
   },
 };
