@@ -7,6 +7,7 @@ import { startMonitor } from './collector.js';
 import { startKill, killRetryCheck, listActiveTasks } from './kill.js';
 import { router as authRouter, requireAuth, ensureInitialAdmin } from './routes/auth.js';
 import { router as nodesRouter } from './routes/nodes.js';
+import { router as jumpsRouter } from './routes/jumps.js';
 import { resolveEnvName } from './util.js';
 
 const app = express();
@@ -24,6 +25,7 @@ app.use('/api', (req, res, next) => {
 // 只读参数：前端展示宽限期/周期等口径
 app.get('/api/meta', (req, res) => {
   res.json({
+    schemaVersion: 2, // nodeId/site/accessMode 寻址（TDD P0）
     pollIntervalSec: config.pollIntervalSec,
     killGraceSec: config.killGraceSec,
     idleMemThresholdMB: config.idleMemThresholdMB,
@@ -43,16 +45,16 @@ app.get('/api/stream', (req, res) => {
 
 // 终止进程（管理员确认）：原因选填（UI 已改为 PID 确认制）；1 分钟重试上限
 app.post('/api/processes/kill', async (req, res) => {
-  const { ip, pid, reason } = req.body || {};
-  const rec = store.getNode(ip || '');
+  const { nodeId, pid, reason } = req.body || {};
+  const rec = store.getNode(nodeId || '');
   if (!rec) return res.status(404).json({ error: '节点不存在' });
   const pidNum = Number(pid);
   if (!Number.isInteger(pidNum) || pidNum <= 0) return res.status(400).json({ error: 'PID 不合法' });
   const reasonTxt = typeof reason === 'string' ? reason.trim() : ''; // 原因选填，空则审计记录为 —
   if (rec.status === 'offline') return res.status(409).json({ error: '节点离线，无法发起终止' });
-  const rc = killRetryCheck(ip, pidNum);
+  const rc = killRetryCheck(nodeId, pidNum);
   if (!rc.ok) return res.status(429).json({ error: `同一进程 1 分钟内最多允许 ${config.killRetryPerMin} 次终止，请 ${rc.retryAfter} 秒后重试` });
-  const task = await startKill({ ip, pid: pidNum, reason: reasonTxt, actor: req.user.username });
+  const task = await startKill({ nodeId, pid: pidNum, reason: reasonTxt, actor: req.user.username });
   res.json({ taskId: task.id, message: '终止指令已进入执行队列' });
 });
 
@@ -90,6 +92,7 @@ app.get('/api/env-resolve', (req, res) => {
 });
 
 app.use('/api/nodes', nodesRouter);
+app.use('/api/jumps', jumpsRouter);
 
 // —— 静态前端 ——
 app.use(express.static(PUBLIC_DIR));
