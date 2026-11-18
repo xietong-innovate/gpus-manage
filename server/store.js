@@ -1,12 +1,16 @@
-// 持久化：admin/nodes 为 JSON 文件（原子写），审计为 JSONL 追加；
-// 支持管理员按行号删除/清空审计（删除操作本身会追加一条审计留痕）
+// 持久化：admin/nodes/jumps 为 JSON 文件（原子写），审计为 JSONL 追加；
+// 节点以 nodeId 为唯一键（跨网段/地址重叠场景），启动时自动迁移旧 ip 键档案
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { DATA_DIR } from './config.js';
 
 const adminFile = path.join(DATA_DIR, 'admin.json');
 const nodesFile = path.join(DATA_DIR, 'nodes.json');
+const jumpsFile = path.join(DATA_DIR, 'jumps.json');
 const auditFile = path.join(DATA_DIR, 'audit.jsonl');
+
+export const newId = (prefix) => prefix + '_' + crypto.randomUUID().replace(/-/g, '').slice(0, 10);
 
 function loadJson(file, fallback) {
   try {
@@ -32,8 +36,33 @@ function serialized(fn) {
   return run;
 }
 
-const nodes = new Map(); // ip → 节点档案
-for (const n of loadJson(nodesFile, [])) nodes.set(n.ip, n);
+// ---------- 节点：nodeId 主键 + 旧档案迁移（P0，TDD §4.1） ----------
+const nodes = new Map(); // nodeId → 节点档案
+{
+  const list = loadJson(nodesFile, []);
+  let migrated = false;
+  for (const n of list) {
+    if (!n.nodeId) {
+      migrated = true;
+      n.nodeId = newId('n');
+      n.site = n.site || 'default';
+      n.accessMode = n.accessMode || 'direct';
+      n.jumpId = n.jumpId || null;
+    }
+    nodes.set(n.nodeId, n);
+  }
+  if (migrated && list.length) {
+    try {
+      if (fs.existsSync(nodesFile)) fs.copyFileSync(nodesFile, nodesFile + '.bak');
+    } catch {}
+    saveJson(nodesFile, [...nodes.values()]);
+    console.log(`[store] 节点档案已迁移至 nodeId 主键（备份：nodes.json.bak，共 ${list.length} 条）`);
+  }
+}
+
+// ---------- 跳板机集合（P1） ----------
+const jumps = new Map(); // jumpId → {jumpId, name, host, port, username, cred, createdAt}
+for (const j of loadJson(jumpsFile, [])) jumps.set(j.jumpId, j);
 
 export const store = {
   getAdmin() {
@@ -46,16 +75,35 @@ export const store = {
   listNodes() {
     return [...nodes.values()];
   },
-  getNode(ip) {
-    return nodes.get(ip) || null;
+  getNode(nodeId) {
+    return nodes.get(nodeId) || null;
+  },
+  // 按 站点+地址 查重（跨站点允许同 IP）
+  getNodeByAddress(site, ip, port) {
+    return [...nodes.values()].find((n) => n.site === (site || 'default') && n.ip === ip && Number(n.port) === Number(port || 22)) || null;
   },
   saveNode(rec) {
-    nodes.set(rec.ip, rec);
+    nodes.set(rec.nodeId, rec);
     return serialized(() => saveJson(nodesFile, [...nodes.values()]));
   },
-  deleteNode(ip) {
-    nodes.delete(ip);
+  deleteNode(nodeId) {
+    nodes.delete(nodeId);
     return serialized(() => saveJson(nodesFile, [...nodes.values()]));
+  },
+
+  listJumps() {
+    return [...jumps.values()];
+  },
+  getJump(jumpId) {
+    return jumps.get(jumpId) || null;
+  },
+  saveJump(j) {
+    jumps.set(j.jumpId, j);
+    return serialized(() => saveJson(jumpsFile, [...jumps.values()]));
+  },
+  deleteJump(jumpId) {
+    jumps.delete(jumpId);
+    return serialized(() => saveJson(jumpsFile, [...jumps.values()]));
   },
 
   // 审计：只追加；entry = {ts, actor, action, target, reason, result}

@@ -6,11 +6,11 @@ import { getConn, closeConn } from './collector.js';
 import { nowISO } from './util.js';
 
 const activeTasks = new Map(); // taskId → task
-const retryWindow = new Map(); // "ip:pid" → {n, from}
+const retryWindow = new Map(); // "nodeId:pid" → {n, from}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export function killRetryCheck(ip, pid) {
-  const key = `${ip}:${pid}`;
+export function killRetryCheck(nodeId, pid) {
+  const key = `${nodeId}:${pid}`;
   const now = Date.now();
   const w = retryWindow.get(key);
   if (!w || now - w.from > 60000) {
@@ -60,9 +60,10 @@ async function sendSignal(rec, pid, sig) {
 }
 
 // 单个进程的两段式终止；onDone 用于强制下线计数
-export async function startKill({ ip, pid, reason, actor }) {
-  const rec = store.getNode(ip);
-  const snap = state.getSnapshot(ip);
+export async function startKill({ nodeId, pid, reason, actor }) {
+  const rec = store.getNode(nodeId);
+  const snap = state.getSnapshot(nodeId);
+  const ip = rec.ip; // 展示与旧字段兼容
   let gpuIndex = null;
   let procInfo = null;
   for (const g of (snap && snap.gpus) || []) {
@@ -77,7 +78,9 @@ export async function startKill({ ip, pid, reason, actor }) {
   const task = {
     id: `k${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`,
     type: 'kill',
+    nodeId,
     ip,
+    site: rec.site || 'default',
     pid,
     gpuIndex,
     reason,
@@ -106,7 +109,7 @@ async function runKill(task, rec) {
     if (!alive0) {
       task.state = 'gone';
       task.message = '进程已退出，无需终止';
-      store.appendAudit({ actor: task.actor, action: 'kill_target_gone', target: `${task.ip} PID ${task.pid}`, reason: task.reason, result: '发起时进程已不存在' });
+      store.appendAudit({ actor: task.actor, action: 'kill_target_gone', target: `${task.site}/${task.ip} PID ${task.pid}`, reason: task.reason, result: '发起时进程已不存在' });
       return;
     }
 
@@ -123,7 +126,7 @@ async function runKill(task, rec) {
       if (!alive) {
         task.state = 'done';
         task.message = '进程已退出（宽限期内响应优雅终止）';
-        store.appendAudit({ actor: task.actor, action: 'kill_graceful', target: `${task.ip} GPU${task.gpuIndex} PID ${task.pid}${task.user ? `（属主 ${task.user}）` : ''}`, reason: task.reason, result: '优雅终止成功，显存已释放' });
+        store.appendAudit({ actor: task.actor, action: 'kill_graceful', target: `${task.site}/${task.ip} GPU${task.gpuIndex} PID ${task.pid}${task.user ? `（属主 ${task.user}）` : ''}`, reason: task.reason, result: '优雅终止成功，显存已释放' });
         return;
       }
     }
@@ -137,20 +140,20 @@ async function runKill(task, rec) {
     store.appendAudit({
       actor: task.actor,
       action: still ? 'kill_unknown' : 'kill_forced',
-      target: `${task.ip} GPU${task.gpuIndex} PID ${task.pid}${task.user ? `（属主 ${task.user}）` : ''}`,
+      target: `${task.site}/${task.ip} GPU${task.gpuIndex} PID ${task.pid}${task.user ? `（属主 ${task.user}）` : ''}`,
       reason: task.reason,
       result: still ? '强杀后进程仍在，建议走节点维护流程' : '强制终止成功',
     });
   } catch (err) {
     task.state = 'unknown';
     task.message = `无法确认终止结果：${err.message}`;
-    store.appendAudit({ actor: task.actor, action: 'kill_unknown', target: `${task.ip} PID ${task.pid}`, reason: task.reason, result: `执行异常：${err.message}` });
+    store.appendAudit({ actor: task.actor, action: 'kill_unknown', target: `${task.site}/${task.ip} PID ${task.pid}`, reason: task.reason, result: `执行异常：${err.message}` });
   }
 }
 
 // 节点强制下线（FR-1.3）：逐进程走同一管线，完成后删除节点
 export async function forceDeleteNode(rec, { actor, reason }) {
-  const snap = state.getSnapshot(rec.ip);
+  const snap = state.getSnapshot(rec.nodeId);
   const procs = [];
   for (const g of (snap && snap.gpus) || []) {
     for (const p of g.processes) procs.push({ pid: p.pid, gpuIndex: g.index, p });
@@ -172,7 +175,7 @@ export async function forceDeleteNode(rec, { actor, reason }) {
 
   (async () => {
     for (const { pid, gpuIndex } of procs) {
-      const t = await startKill({ ip: rec.ip, pid, reason, actor });
+      const t = await startKill({ nodeId: rec.nodeId, pid, reason, actor });
       // 等待该进程任务结束（上限：宽限期 + 10s）
       const limit = Date.now() + (t.graceSec + 10) * 1000;
       while (!t.settledAt && Date.now() < limit) await sleep(500);
@@ -180,13 +183,13 @@ export async function forceDeleteNode(rec, { actor, reason }) {
       task.message = `已处理 ${task.done}/${task.total} 个进程`;
       emitTask(task);
     }
-    store.deleteNode(rec.ip);
-    closeConn(rec.ip);
-    state.clearSnapshot(rec.ip);
+    store.deleteNode(rec.nodeId);
+    closeConn(rec.nodeId);
+    state.clearSnapshot(rec.nodeId);
     task.state = 'done';
     task.message = '节点已删除';
     task.settledAt = Date.now();
-    store.appendAudit({ actor, action: 'node_force_delete', target: rec.ip, reason, result: `强制下线完成，共清理 ${procs.length} 个进程` });
+    store.appendAudit({ actor, action: 'node_force_delete', target: `${rec.site || 'default'}/${rec.ip}`, reason, result: `强制下线完成，共清理 ${procs.length} 个进程` });
     emitTask(task);
   })().catch(() => {});
   return task;

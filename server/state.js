@@ -2,7 +2,7 @@
 import { config } from './config.js';
 import { store } from './store.js';
 
-const snapshots = new Map(); // ip → {ts, driver, gpus:[...]}
+const snapshots = new Map(); // nodeId → {ts, driver, gpus:[...]}
 const sseClients = new Set();
 
 export function addSseClient(res) {
@@ -27,16 +27,16 @@ setInterval(() => {
   for (const res of sseClients) res.write(':hb\n\n');
 }, 15000).unref();
 
-export function setSnapshot(ip, snap) {
-  snapshots.set(ip, snap);
+export function setSnapshot(nodeId, snap) {
+  snapshots.set(nodeId, snap);
 }
 
-export function getSnapshot(ip) {
-  return snapshots.get(ip) || null;
+export function getSnapshot(nodeId) {
+  return snapshots.get(nodeId) || null;
 }
 
-export function clearSnapshot(ip) {
-  snapshots.delete(ip);
+export function clearSnapshot(nodeId) {
+  snapshots.delete(nodeId);
 }
 
 // 显卡状态计算（PRD 4.3 唯一口径）：
@@ -48,9 +48,12 @@ export function buildOverview() {
   const sum = { total: 0, idle: 0, busy: 0, err: 0, unknown: 0, totalMemMB: 0, usedMemMB: 0 };
 
   for (const n of store.listNodes()) {
-    const snap = snapshots.get(n.ip);
+    const snap = snapshots.get(n.nodeId);
     const live = n.status === 'online' && !!snap;
     nodesOut.push({
+      nodeId: n.nodeId,
+      site: n.site || 'default',
+      accessMode: n.accessMode || 'direct',
       ip: n.ip,
       port: n.port,
       name: n.name,
@@ -69,6 +72,8 @@ export function buildOverview() {
     for (const reg of n.gpus || []) {
       const s = live ? snap.gpus.find((g) => g.index === reg.index) : null;
       const gpu = {
+        nodeId: n.nodeId,
+        site: n.site || 'default',
         ip: n.ip,
         index: reg.index,
         model: reg.model,

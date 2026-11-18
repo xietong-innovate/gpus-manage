@@ -222,10 +222,10 @@ function renderDashboard() {
   let grid = '';
   const f = S.filter || 'all'; // 状态筛选：all / idle / busy / err / unknown
   for (const n of ov.nodes) {
-    const gpus = ov.gpus.filter((g) => g.ip === n.ip && (f === 'all' || g.status === f));
+    const gpus = ov.gpus.filter((g) => (g.nodeId || g.ip) === (n.nodeId || n.ip) && (f === 'all' || g.status === f));
     if (!gpus.length) continue;
     const [txt, cls] = NODE_TXT[n.status] || [n.status, 'st-unk'];
-    grid += `<div class="gnode"><b>${esc(n.name)}</b><span>${esc(n.ip)}</span><span class="pill ${cls}">${txt}</span>` +
+    grid += `<div class="gnode"><b>${esc(n.name)}</b><span>${esc(n.ip)}</span><span class="mini">站点 ${esc(n.site || 'default')}</span>${n.accessMode === 'jump' ? '<span class="pill st-maint">经跳板</span>' : ''}<span class="pill ${cls}">${txt}</span>` +
       `${n.driver ? `<span>驱动 ${esc(n.driver)}</span>` : ''}<span class="mini">心跳 ${fmtTime(n.lastHeartbeat)}</span>` +
       `${n.hwAlert ? '<span style="color:#ffd27a">硬件变更待确认</span>' : ''}</div>`;
     grid += '<div class="gpu-grid">' + gpus.map((g) => gpuCard(g, n)).join('') + '</div>';
@@ -262,10 +262,10 @@ function gpuCard(g, n) {
   const clickable = g.status !== 'unknown' && g.status !== 'err';
   const pct = g.totalMemMB ? Math.min(100, Math.round((g.usedMemMB || 0) / g.totalMemMB * 100)) : 0;
   const barColor = g.status === 'err' ? '#ff7a68' : pct > 85 ? '#ff9e5e' : ST_COLOR[g.status] || '#7b8aa5';
-  const sel = S.selected && S.selected.ip === g.ip && S.selected.index === g.index;
+  const sel = S.selected && S.selected.nodeId === g.nodeId && S.selected.index === g.index;
   const errTxt = g.status === 'err' ? `（ECC 错误 ${esc(g.eccErr ?? '')}）` : '';
-  return `<div class="gpu-card ${clickable ? '' : 'dis'} ${sel ? 'sel' : ''}" ${clickable ? `onclick="selGpu('${g.ip}',${g.index})"` : ''}>
-    <div class="gname"><span>${esc(n.name)} GPU${g.index}<span class="mini" style="font-weight:400;margin-left:6px">IP ${esc(g.ip)}</span></span><span class="pill ${cls}">${txt}</span></div>
+  return `<div class="gpu-card ${clickable ? '' : 'dis'} ${sel ? 'sel' : ''}" ${clickable ? `onclick="selGpu('${g.nodeId || g.ip}',${g.index})"` : ''}>
+    <div class="gname"><span>${esc(n.name)} GPU${g.index}<span class="mini" style="font-weight:400;margin-left:6px">IP ${esc(g.ip)}${g.site && g.site !== 'default' ? ` · ${esc(g.site)}` : ''}</span></span><span class="pill ${cls}">${txt}</span></div>
     <div class="gmem">${esc(g.model)} · 总显存 ${fmtMB(g.totalMemMB)}</div>
     <div class="bar"><i style="width:${pct}%;background:${barColor}"></i></div>
     <div class="gmeta"><span>已用 ${fmtMB(g.usedMemMB)} / ${pct}%</span><span>util ${g.util ?? '—'}%</span></div>
@@ -275,8 +275,8 @@ function gpuCard(g, n) {
   </div>`;
 }
 
-function selGpu(ip, index) {
-  const g = S.overview.gpus.find((x) => x.ip === ip && x.index === index);
+function selGpu(nodeId, index) {
+  const g = S.overview.gpus.find((x) => (x.nodeId || x.ip) === nodeId && x.index === index);
   if (!g) return;
   S.selected = g;
   renderDashboard();
@@ -284,7 +284,7 @@ function selGpu(ip, index) {
 window.selGpu = selGpu;
 
 function gpuDetail(g) {
-  const n = S.overview.nodes.find((x) => x.ip === g.ip);
+  const n = S.overview.nodes.find((x) => (x.nodeId || x.ip) === (g.nodeId || g.ip));
   const rows = g.processes.map((p) => `
     <tr>
       <td style="font-family:var(--mono)">${p.pid}</td><td>${esc(p.user)}</td>
@@ -292,7 +292,7 @@ function gpuDetail(g) {
       <td style="font-family:var(--mono)">${fmtMB(p.memMB)}</td>
       <td>${fmtDur(p.etimes)}</td>
       <td style="font-family:var(--mono);font-size:11.5px">${esc(p.cmd || '不可读')}</td>
-      <td><button class="btn danger sm" onclick="openKill('${g.ip}',${g.index},${p.pid})">终止</button></td>
+      <td><button class="btn danger sm" onclick="openKill('${g.nodeId || g.ip}',${g.index},${p.pid})">终止</button></td>
     </tr>`).join('');
   const otherRow = g.dataErr
     ? '<tr><td colspan="3" style="color:#7d8db0">其他 / 系统占用</td><td style="font-family:var(--mono);color:#ff8f7f">数据异常</td><td colspan="3" style="color:#55627e;font-size:11.5px">进程显存之和大于卡级占用，已标记数据质量问题</td></tr>'
@@ -314,8 +314,8 @@ function gpuDetail(g) {
 }
 
 // ---------- 终止流程（管理员确认：输入 PID 二次确认；原因改为选填） ----------
-function openKill(ip, index, pid) {
-  const g = S.overview.gpus.find((x) => x.ip === ip && x.index === index);
+function openKill(nodeId, index, pid) {
+  const g = S.overview.gpus.find((x) => (x.nodeId || x.ip) === nodeId && x.index === index);
   const p = g && g.processes.find((x) => x.pid === pid);
   if (!p) return;
   const grace = S.meta.killGraceSec || 30;
@@ -329,15 +329,15 @@ function openKill(ip, index, pid) {
       <input id="k-pid" autocomplete="off" placeholder="${p.pid}"></div>
     <div class="actions">
       <button class="btn ghost" onclick="closeModal()">取消</button>
-      <button class="btn danger" id="k-go" disabled onclick="doKill('${ip}',${p.pid})">发送终止指令</button>
+      <button class="btn danger" id="k-go" disabled onclick="doKill('${nodeId}',${p.pid})">发送终止指令</button>
     </div>`);
   const upd = () => { $('#k-go').disabled = !($('#k-pid').value.trim() === String(p.pid)); };
   $('#k-pid').oninput = upd;
 }
 window.openKill = openKill;
-window.doKill = async (ip, pid) => {
+window.doKill = async (nodeId, pid) => {
   try {
-    await api('/api/processes/kill', { method: 'POST', body: { ip, pid } });
+    await api('/api/processes/kill', { method: 'POST', body: { nodeId, pid } });
     closeModal();
     toast(`PID ${pid} 终止指令已发出`, 'ok');
   } catch (e) { toast(e.message, 'err'); }
@@ -353,7 +353,7 @@ async function renderNodes() {
     const [txt, cls] = NODE_TXT[n.status] || [n.status, 'st-unk'];
     return `<tr>
       <td>${esc(n.name)}<div class="mini">${esc(n.group)}</div></td>
-      <td style="font-family:var(--mono)">${esc(n.ip)}:${n.port}</td>
+      <td style="font-family:var(--mono)">${esc(n.ip)}:${n.port}<div class="mini">站点 ${esc(n.site || 'default')}${n.accessMode === 'jump' ? ' · 经跳板' : ''}</div></td>
       <td>${n.gpuCount}</td>
       <td style="font-family:var(--mono)">${esc(n.driver || '—')}</td>
       <td>${fmtTime(n.lastHeartbeat)}</td>
@@ -361,10 +361,10 @@ async function renderNodes() {
         ${n.failReason ? `<div class="mini" style="color:#ff8f7f">${esc(n.failReason)}</div>` : ''}
         ${n.hwAlert ? '<div class="mini" style="color:#ffd27a">硬件变更待确认</div>' : ''}</td>
       <td style="white-space:nowrap">
-        <button class="btn ghost sm" onclick="toggleMaint('${n.ip}',${n.status === 'maint'})">${n.status === 'maint' ? '恢复' : '维护'}</button>
-        ${n.status !== 'online' ? `<button class="btn ghost sm" onclick="reverify('${n.ip}')">重验</button>` : ''}
-        ${n.hwAlert ? `<button class="btn ghost sm" onclick="reregister('${n.ip}')">确认档案</button>` : ''}
-        <button class="btn danger sm" onclick="openDel('${n.ip}',${n.status === 'online'})">删除</button>
+        <button class="btn ghost sm" onclick="toggleMaint('${n.nodeId}',${n.status === 'maint'})">${n.status === 'maint' ? '恢复' : '维护'}</button>
+        ${n.status !== 'online' ? `<button class="btn ghost sm" onclick="reverify('${n.nodeId}')">重验</button>` : ''}
+        ${n.hwAlert ? `<button class="btn ghost sm" onclick="reregister('${n.nodeId}')">确认档案</button>` : ''}
+        <button class="btn danger sm" onclick="openDel('${n.nodeId}','${n.ip}',${n.status === 'online'})">删除</button>
       </td></tr>`;
   }).join('');
   c.innerHTML = `
@@ -373,29 +373,30 @@ async function renderNodes() {
     <div>
       <button class="btn" onclick="openBatch()">批量绑定节点</button>
       <button class="btn ghost" onclick="openAddOne()">新增节点</button>
+      <button class="btn ghost" onclick="openJumps()">跳板机管理</button>
       <span class="hint" style="display:inline;margin-left:10px">粘贴 IP 清单一次接入全部机器；删除有活动进程的节点须强制下线并确认</span>
     </div>
     <div class="mt">${rows ? `<table><tr><th>名称/分组</th><th>IP:端口</th><th>显卡数</th><th>驱动</th><th>最后心跳</th><th>状态</th><th>操作</th></tr>${rows}</table>` : '<div class="alertbar">还没有任何节点，点击"批量绑定节点"录入首批 GPU 机器。</div>'}</div>`;
   renderTasks();
 }
 
-window.toggleMaint = async (ip, inMaint) => {
-  try { await api(`/api/nodes/${ip}`, { method: 'PATCH', body: { maintenance: !inMaint } }); renderNodes(); }
+window.toggleMaint = async (nodeId, inMaint) => {
+  try { await api(`/api/nodes/${nodeId}`, { method: 'PATCH', body: { maintenance: !inMaint } }); renderNodes(); }
   catch (e) { toast(e.message, 'err'); }
 };
-window.reverify = async (ip) => {
-  try { const r = await api(`/api/nodes/${ip}/reverify`, { method: 'POST' }); toast(r.message, 'ok'); }
+window.reverify = async (nodeId) => {
+  try { const r = await api(`/api/nodes/${nodeId}/reverify`, { method: 'POST' }); toast(r.message, 'ok'); }
   catch (e) { toast(e.message, 'err'); }
 };
-window.reregister = async (ip) => {
-  try { await api(`/api/nodes/${ip}/reregister`, { method: 'POST', body: { reason: '界面确认硬件变更' } }); toast('已按最新采集更新显卡档案', 'ok'); renderNodes(); }
+window.reregister = async (nodeId) => {
+  try { await api(`/api/nodes/${nodeId}/reregister`, { method: 'POST', body: { reason: '界面确认硬件变更' } }); toast('已按最新采集更新显卡档案', 'ok'); renderNodes(); }
   catch (e) { toast(e.message, 'err'); }
 };
 
 // 批量绑定（FR-1.1）
 window.openBatch = () => {
   openModal(`<h3>批量绑定节点</h3>
-    <div class="kv">每行一个 <b>IP</b> 或 <b>IP:端口</b>。整批共用一套节点凭据（加密存储，永不回显）。127.0.0.1 / localhost 为本机直连节点，无需凭据。</div>
+    <div class="kv">每行一个 <b>IP</b> 或 <b>IP:端口</b>。整批共用一套节点凭据（加密存储，永不回显）。127.0.0.1 / localhost 为本机直连节点，无需凭据。跨网段机器可选「经跳板机」接入。</div>
     <div class="row"><textarea id="b-text" rows="6" placeholder="127.0.0.1&#10;192.168.1.21:22"></textarea></div>
     <div class="row" style="display:grid;grid-template-columns:1fr 1fr 80px;gap:8px">
       <div><label>SSH 用户名</label><input id="b-user" placeholder="root"></div>
@@ -404,16 +405,23 @@ window.openBatch = () => {
     <div class="row" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <div><label>分组标签</label><input id="b-group" placeholder="如：一楼机房"></div>
       <div><label>名称前缀（可选）</label><input id="b-prefix" placeholder="如：lab"></div></div>
+    <div class="row" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+      <div><label>站点（网络域，同名站点内 IP 不允许重复）</label><input id="b-site" value="default"></div>
+      <div><label>接入方式</label><select id="b-mode" onchange="batchModeChange()"><option value="direct">SSH 直连</option><option value="jump">经跳板机</option></select></div>
+      <div id="b-jump-wrap" style="display:none"><label>跳板机</label><select id="b-jump"></select></div></div>
     <div class="actions">
       <button class="btn ghost" onclick="closeModal()">关闭</button>
       <button class="btn ghost" id="b-parse" onclick="parseBatch()">解析并校验</button>
       <button class="btn" id="b-go" onclick="startBatch()" disabled>开始接入（仅有效行）</button>
     </div>
     <div id="b-result" class="mt"></div>`);
+  loadJumpOptions('b-jump');
 };
+window.batchModeChange = () => { const w = $('#b-jump-wrap'); if (w) w.style.display = $('#b-mode').value === 'jump' ? '' : 'none'; };
 window.parseBatch = () => {
   const lines = $('#b-text').value.split('\n').map((s) => s.trim()).filter(Boolean);
-  const existing = new Set((S.overview ? S.overview.nodes : []).map((n) => n.ip));
+  const site = ($('#b-site') ? $('#b-site').value.trim() : '') || 'default';
+  const existing = new Set((S.overview ? S.overview.nodes : []).filter((n) => (n.site || 'default') === site).map((n) => n.ip));
   const seen = new Set();
   const valid = [];
   const rows = lines.map((l) => {
@@ -440,7 +448,11 @@ window.startBatch = async () => {
     port: $('#b-port') ? Number($('#b-port').value) || 22 : 22,
     group: $('#b-group').value || undefined,
     namePrefix: $('#b-prefix').value || undefined,
+    site: ($('#b-site') ? $('#b-site').value.trim() : '') || 'default',
+    accessMode: $('#b-mode') ? $('#b-mode').value : 'direct',
+    jumpId: $('#b-jump') ? $('#b-jump').value : undefined,
   };
+  if (body.accessMode === 'jump' && !body.jumpId) return toast('经跳板接入必须先选择跳板机（可在「跳板机管理」中添加）', 'err');
   // 仅当有效行含远程节点时必填 SSH 凭据；127.0.0.1/localhost 为本机直连，无需凭据
   const needCred = (window._batchValid || []).some((ip) => ip !== '127.0.0.1' && ip !== 'localhost');
   if (needCred && !body.username) return toast('远程节点必须填写 SSH 用户名；127.0.0.1 / localhost 为本机直连，无需凭据', 'err');
@@ -474,17 +486,28 @@ window.openAddOne = () => {
     <div class="row" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <div><label>IP</label><input id="a-ip" placeholder="192.168.1.50"></div>
       <div><label>分组</label><input id="a-group"></div></div>
+    <div class="row" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+      <div><label>站点（网络域）</label><input id="a-site" value="default"></div>
+      <div><label>接入方式</label><select id="a-mode" onchange="addOneModeChange()"><option value="direct">SSH 直连</option><option value="jump">经跳板机</option></select></div>
+      <div id="a-jump-wrap" style="display:none"><label>跳板机</label><select id="a-jump"></select></div></div>
     <div class="actions"><button class="btn ghost" onclick="closeModal()">取消</button>
     <button class="btn" onclick="addOne()">接入</button></div>`);
+  loadJumpOptions('a-jump');
 };
+window.addOneModeChange = () => { const w = $('#a-jump-wrap'); if (w) w.style.display = $('#a-mode').value === 'jump' ? '' : 'none'; };
 window.addOne = async () => {
   try {
+    const mode = $('#a-mode') ? $('#a-mode').value : 'direct';
+    if (mode === 'jump' && !$('#a-jump').value) return toast('经跳板接入必须先选择跳板机（可在「跳板机管理」中添加）', 'err');
     await api('/api/nodes', {
       method: 'POST',
       body: {
         ip: $('#a-ip').value.trim(),
         port: $('#a-port') ? Number($('#a-port').value) || 22 : 22,
         group: $('#a-group').value || undefined,
+        site: ($('#a-site') ? $('#a-site').value.trim() : '') || 'default',
+        accessMode: mode,
+        jumpId: mode === 'jump' ? $('#a-jump').value : undefined,
         username: $('#a-user') ? $('#a-user').value : undefined,
         password: $('#a-pass') ? $('#a-pass').value : undefined,
       },
@@ -493,12 +516,53 @@ window.addOne = async () => {
   } catch (e) { toast(e.message, 'err'); }
 };
 
+// ---------- 跳板机管理（TDD P1：管理端 → 跳板机 → 目标节点 的 SSH 级联） ----------
+window.openJumps = async () => {
+  let jumps = [];
+  try { jumps = (await api('/api/jumps')).jumps; } catch {}
+  openModal(`<h3>跳板机管理</h3>
+    <div class="kv">适用于管理端与目标节点不同网段的场景：系统先 SSH 登录跳板机，再经其转发到目标节点 22 端口。跳板凭据同样加密存储、永不回显。</div>
+    ${jumps.length ? `<table><tr><th>名称</th><th>地址</th><th>用户</th><th>引用节点数</th><th>操作</th></tr>
+      ${jumps.map((j) => `<tr><td>${esc(j.name)}</td><td style="font-family:var(--mono)">${esc(j.host)}:${j.port}</td><td>${esc(j.username)}</td><td>${j.inUse}</td>
+      <td><button class="btn danger sm" onclick="doDelJump('${j.jumpId}')">删除</button></td></tr>`).join('')}</table>` : '<div class="hint">尚未添加跳板机。如需跨网段接入，先在此登记跳板机（如堡垒机）。</div>'}
+    <h3 style="margin-top:14px">添加跳板机</h3>
+    <div class="row" style="display:grid;grid-template-columns:1.4fr 1fr 80px;gap:8px">
+      <div><label>地址（IP 或主机名）</label><input id="j-host" placeholder="10.0.0.1"></div>
+      <div><label>SSH 用户名</label><input id="j-user"></div>
+      <div><label>端口</label><input id="j-port" value="22"></div></div>
+    <div class="row" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div><label>名称（可选）</label><input id="j-name" placeholder="如：一号堡垒机"></div>
+      <div><label>SSH 密码</label><input id="j-pass" type="password"></div></div>
+    <div class="actions"><button class="btn ghost" onclick="closeModal()">关闭</button>
+    <button class="btn" onclick="doAddJump()">添加</button></div>`);
+};
+window.doAddJump = async () => {
+  try {
+    await api('/api/jumps', { method: 'POST', body: { name: $('#j-name').value, host: $('#j-host').value.trim(), port: Number($('#j-port').value) || 22, username: $('#j-user').value, password: $('#j-pass').value } });
+    toast('跳板机已添加', 'ok'); openJumps();
+  } catch (e) { toast(e.message, 'err'); }
+};
+window.doDelJump = async (jumpId) => {
+  try { await api(`/api/jumps/${jumpId}`, { method: 'DELETE' }); toast('跳板机已删除', 'ok'); openJumps(); }
+  catch (e) { toast(e.message, 'err'); }
+};
+async function loadJumpOptions(selId) {
+  const sel = document.getElementById(selId);
+  if (!sel) return;
+  try {
+    const js = (await api('/api/jumps')).jumps;
+    sel.innerHTML = js.length
+      ? js.map((j) => `<option value="${esc(j.jumpId)}">${esc(j.name)} (${esc(j.host)})</option>`).join('')
+      : '<option value="">（尚未添加跳板机）</option>';
+  } catch { sel.innerHTML = '<option value="">跳板机列表加载失败</option>'; }
+}
+
 // 删除（FR-1.3）
-window.openDel = (ip, online) => {
+window.openDel = (nodeId, ip, online) => {
   let procRows = '';
   if (S.overview) {
     const procs = [];
-    for (const g of S.overview.gpus.filter((x) => x.ip === ip)) {
+    for (const g of S.overview.gpus.filter((x) => (x.nodeId || x.ip) === nodeId)) {
       for (const p of g.processes) procs.push({ ...p, gpu: g.index });
     }
     if (procs.length) {
@@ -514,7 +578,7 @@ window.openDel = (ip, online) => {
     <div class="row"><label>请输入节点 IP <b>${esc(ip)}</b> 以确认</label>
       <input id="d-confirm" autocomplete="off" placeholder="${esc(ip)}"></div>
     <div class="actions"><button class="btn ghost" onclick="closeModal()">取消</button>
-    <button class="btn danger" id="d-go" disabled onclick="doDel('${ip}')">确认删除</button></div>`);
+    <button class="btn danger" id="d-go" disabled onclick="doDel('${nodeId}')">确认删除</button></div>`);
   const upd = () => {
     const force = $('#d-force') && $('#d-force').checked;
     $('#d-go').disabled = !($('#d-confirm').value.trim() === ip && (!force || $('#d-reason').value.trim().length > 0));
@@ -523,10 +587,10 @@ window.openDel = (ip, online) => {
   const f = $('#d-force'); if (f) f.onchange = upd;
   const r = $('#d-reason'); if (r) r.oninput = upd;
 };
-window.doDel = async (ip) => {
+window.doDel = async (nodeId) => {
   const force = $('#d-force') && $('#d-force').checked;
   try {
-    const r = await api(`/api/nodes/${ip}`, {
+    const r = await api(`/api/nodes/${nodeId}`, {
       method: 'DELETE',
       body: { force: !!force, confirm: $('#d-confirm').value.trim(), reason: $('#d-reason').value.trim() },
     });
@@ -549,7 +613,7 @@ async function renderAudit() {
   const q = c.dataset.q || '';
   let entries = [];
   try { entries = (await api(`/api/audit?action=${encodeURIComponent(action)}&actor=${encodeURIComponent(actor)}&q=${encodeURIComponent(q)}`)).entries; } catch {}
-  const actNames = ['', 'login_ok', 'login_fail', 'login_locked', 'kill_graceful', 'kill_forced', 'kill_unknown', 'kill_target_gone', 'node_bind_ok', 'node_bind_fail', 'node_delete', 'node_force_delete', 'node_offline', 'node_hwchange', 'gpu_reregister', 'audit_delete', 'audit_clear'];
+  const actNames = ['', 'login_ok', 'login_fail', 'login_locked', 'kill_graceful', 'kill_forced', 'kill_unknown', 'kill_target_gone', 'node_bind_ok', 'node_bind_fail', 'node_delete', 'node_force_delete', 'node_offline', 'node_hwchange', 'gpu_reregister', 'node_cred_update', 'jump_create', 'jump_update', 'jump_delete', 'audit_delete', 'audit_clear'];
   c.innerHTML = `
     <h2 class="page">审计日志 <span class="mini">支持勾选删除与一键清空（不可恢复）· 删除/清空操作本身会记入一条新审计留痕</span></h2>
     <div class="filters">
